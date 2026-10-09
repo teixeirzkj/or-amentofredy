@@ -104,6 +104,7 @@ Regras:
 - Itinerários costumam listar os trechos em ordem: o primeiro bloco é a ida e o segundo a volta.
 - Valores em reais como número (8889.27, não "R$ 8.889,27").
 - "editorial" é a única parte que vem do seu conhecimento, não do print: escreva algo curto e vendedor sobre o destino, em português do Brasil.
+- Traslado e seguro viagem entram só como true em "included.transfers" e "included.insurance"; não repita esses itens em "extras". Em "extras" vão só serviços além disso (bagagem despachada, assento marcado, passeio extra...), em texto curto.
 - Liste em "uncertainties" tudo que ficou ambíguo ou cortado no print.`;
 
 let client;
