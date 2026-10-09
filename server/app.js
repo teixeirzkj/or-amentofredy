@@ -190,7 +190,7 @@ function toOption(ex, label = "Opção 1") {
 function describeIssues(zodError) {
   const first = zodError.issues[0];
   const where = first?.path?.length ? ` (campo: ${first.path.join(".")})` : "";
-  return `Dados inválidos no orçamento${where}: ${(first?.message || "verifique os campos").replace(/.$/, "")}.`;
+  return `Dados inválidos no orçamento${where}: ${(first?.message || "verifique os campos").replace(/\.$/, "")}.`;
 }
 
 /* ---------- API do atendente ---------- */
