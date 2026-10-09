@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gerar orçamento · Frédy</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" type="image/png" href="/assets/logo-fredy.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/wizard.css" />
+</head>
+<body class="wizard-page">
+  <div class="backdrop" aria-hidden="true"></div>
+
+  <div class="modal" id="modal" role="dialog" aria-labelledby="modalTitle">
+    <header class="modal-head">
+      <div class="brand-chip"><img src="/assets/logo-fredy.png" alt="Frédy" /></div>
+      <div class="modal-head-text">
+        <h1 id="modalTitle">Novo orçamento</h1>
+        <p class="creating-as" id="creatingAs"></p>
+      </div>
+      <div class="modal-head-actions">
+        <button class="btn btn-sm btn-ghost" id="btnList" type="button">Meus orçamentos</button>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Alternar tema"></button>
+        <button class="icon-btn" id="btnClose" type="button" aria-label="Fechar"></button>
+      </div>
+    </header>
+
+    <div class="progress" id="progress" aria-hidden="true">
+      <span></span><span></span><span></span><span></span>
+    </div>
+
+    <div class="modal-body" id="body"></div>
+
+    <footer class="modal-foot" id="foot"></footer>
+  </div>
+
+  <div class="overlay" id="loginOverlay" hidden>
+    <form class="login card" id="loginForm">
+      <div class="brand-chip big"><img src="/assets/logo-fredy.png" alt="Frédy" /></div>
+      <h2>Gerador de orçamentos</h2>
+      <p class="muted small">Digite a senha da equipe pra continuar.</p>
+      <input class="input" type="password" id="loginToken" placeholder="Senha" autocomplete="current-password" required />
+      <button class="btn btn-primary btn-block" type="submit">Entrar</button>
+      <p class="hint" id="loginError"></p>
+    </form>
+  </div>
+
+  <div class="overlay" id="sheetOverlay" hidden>
+    <div class="sheet card" id="sheet"></div>
+  </div>
+
+  <script type="module" src="/js/wizard.js"></script>
+</body>
+</html>

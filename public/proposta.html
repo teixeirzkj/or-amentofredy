@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Proposta de viagem · Frédy</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" type="image/png" href="/assets/logo-fredy.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/proposta.css" />
+</head>
+<body>
+  <header class="topbar" id="topbar">
+    <div class="topbar-inner">
+      <a class="topbar-brand" href="#" aria-label="Frédy"><img src="/assets/logo-fredy.png" alt="Frédy" /></a>
+      <div class="option-switch" id="optionSwitch" hidden>
+        <span class="option-switch-label">Escolha sua opção</span>
+        <div class="option-pills" id="optionPills" role="tablist"></div>
+      </div>
+      <button class="theme-toggle topbar-theme" id="themeToggle" type="button" aria-label="Alternar tema"></button>
+    </div>
+  </header>
+
+  <main id="app" class="proposal">
+    <div class="loading-state" id="loading">
+      <div class="spinner"></div>
+      <p>Carregando sua proposta…</p>
+    </div>
+  </main>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="lightbox-close" id="lbClose" type="button" aria-label="Fechar"></button>
+    <button class="lightbox-nav prev" id="lbPrev" type="button" aria-label="Anterior"></button>
+    <img id="lbImg" alt="" />
+    <button class="lightbox-nav next" id="lbNext" type="button" aria-label="Próxima"></button>
+    <div class="lightbox-count" id="lbCount"></div>
+  </div>
+
+  <script type="module" src="/js/proposta.js"></script>
+</body>
+</html>

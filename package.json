@@ -1,0 +1,22 @@
+{
+  "name": "fredy-orcamentos",
+  "version": "0.1.0",
+  "description": "Gerador de orçamentos de viagem do Frédy: print da cotação → IA extrai → revisão → link pro cliente",
+  "private": true,
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
+    "@vercel/blob": "^2.8.1",
+    "dotenv": "^18.0.6",
+    "express": "^4.22.3",
+    "zod": "^4.6.5"
+  }
+}

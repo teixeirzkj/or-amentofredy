@@ -1,0 +1,9 @@
+node_modules/
+.env
+data/proposals/*.json
+data/uploads/*
+!data/uploads/.gitkeep
+!data/proposals/.gitkeep
+data/library.json
+
+.vercel
