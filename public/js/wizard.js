@@ -276,8 +276,34 @@ function renderStep1() {
       ? el("button", { class: "btn btn-block btn-soft", type: "button", html: `Continuar com ${plural(has, "a opção já preenchida", "as opções já preenchidas")} ${icon("arrowR")}`, onClick: () => go(2) })
       : el("button", { class: "btn btn-block", type: "button", html: `${icon("edit")} Preencher manualmente (sem print)`, onClick: () => { S.proposal.options.push(blankOption("Opção 1")); S.cur = 0; go(2); } }),
     el("p", { class: "hint", style: { textAlign: "center", marginTop: "8px" }, text: has ? "Um print novo aqui vira mais uma opção no mesmo link." : "Monte o orçamento do zero: voos, hotéis, valores e pagamento — tudo na mão." }),
+    // TEMPORÁRIO (teste): preenche um orçamento de exemplo e pula pra revisão final.
+    el("button", { class: "btn btn-block btn-ghost", type: "button", style: { marginTop: "14px", borderStyle: "dashed", borderColor: "var(--border-2)" }, html: `${icon("wand")} Preencher com exemplo (teste) — vai direto pra gerar o link`, onClick: fillDemo }),
   );
   body.append(wrap);
+}
+
+/** TEMPORÁRIO: carrega um orçamento de exemplo (Maceió, 2 opções) pra testar a geração do link sem print. */
+function fillDemo() {
+  const o1 = blankOption("Opção 1");
+  Object.assign(o1.destination, { city: "Maceió", region: "Alagoas", tagline: "O Caribe brasileiro: piscinas naturais e praias de tirar o fôlego", highlights: ["Praia do Gunga e Barra de São Miguel", "Praias de Pajuçara e Jatiúca no centro"], climate: "Tropical, média 27 graus", bestSeason: "" });
+  o1.flights.outbound = { date: "16/05/2027", origin: "CWB", destination: "MCZ", departure: "05:25", arrival: "11:10", duration: "5h 45m", airline: "Azul", connections: [{ airport: "CNF", arrival: "07:00", departure: "08:55" }] };
+  o1.flights.inbound = { date: "21/05/2027", origin: "MCZ", destination: "CWB", departure: "10:05", arrival: "21:40", duration: "11h 35m", airline: "Azul", connections: [{ airport: "REC", arrival: "10:55", departure: "17:50" }] };
+  o1.hotels = [{ ...blankHotel("Maceió"), name: "Ipioca Beach Resort", checkin: "16/05/2027", checkout: "21/05/2027", nights: 5, board: "Café da manhã" }];
+  o1.included = { flights: true, hotel: true, transfers: true, insurance: true, tours: ["City Tour e Litoral Sul"], extras: ["Serviço Assento Azul Juntos"] };
+  o1.passengers = { rooms: 1, adults: 2, children: 0 };
+  o1.pricing = { mode: "total", amount: 8000, promo: { applied: true, originalAmount: 8889.27, percent: 10 } };
+
+  const o2 = JSON.parse(JSON.stringify(o1));
+  o2.label = "Opção 2";
+  o2.hotels[0] = { ...blankHotel("Maceió"), name: "Maceió Mar Resort", checkin: "16/05/2027", checkout: "21/05/2027", nights: 5, board: "All inclusive" };
+  o2.pricing = { mode: "total", amount: 11200, promo: { applied: false, originalAmount: null, percent: null } };
+  o2.payment.highlight = "perPerson";
+
+  S.proposal.options = [o1, o2];
+  S.proposal.clientName = "Lilian Pavani";
+  S.cur = 0; S.id = null; S.url = "";
+  toast("Exemplo carregado — revise e clique em gerar.", "success");
+  go(4);
 }
 
 function dropzone({ onFile, compact = false }) {
