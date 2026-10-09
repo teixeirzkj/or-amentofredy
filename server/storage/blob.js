@@ -1,4 +1,4 @@
-// Backend Vercel Blob: usado quando BLOB_READ_WRITE_TOKEN está definido (deploy na Vercel).
+// Backend Vercel Blob: usado quando o store está conectado ao projeto (BLOB_READ_WRITE_TOKEN, ou BLOB_STORE_ID + OIDC).
 // JSONs (propostas, biblioteca) ficam privados; fotos ficam públicas (o cliente abre pela URL).
 import { put, get, list, BlobNotFoundError } from "@vercel/blob";
 

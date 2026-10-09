@@ -1,14 +1,15 @@
 // Armazenamento de propostas, fotos e biblioteca.
 // - Local (npm start): arquivos JSON em data/.
-// - Vercel (BLOB_READ_WRITE_TOKEN definido): Vercel Blob — JSON privado, fotos públicas.
+// - Vercel (store conectado: BLOB_READ_WRITE_TOKEN ou BLOB_STORE_ID via OIDC): Vercel Blob, tudo privado.
 import crypto from "node:crypto";
 import * as fsBackend from "./storage/fs.js";
 import * as blobBackend from "./storage/blob.js";
 
-const backend = process.env.BLOB_READ_WRITE_TOKEN ? blobBackend : fsBackend;
-export const BACKEND_NAME = process.env.BLOB_READ_WRITE_TOKEN ? "vercel-blob" : fsBackend.IS_EPHEMERAL ? "temporário" : "arquivos locais (data/)";
+const HAS_BLOB = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
+const backend = HAS_BLOB ? blobBackend : fsBackend;
+export const BACKEND_NAME = HAS_BLOB ? "vercel-blob" : fsBackend.IS_EPHEMERAL ? "temporário" : "arquivos locais (data/)";
 /** true quando os dados somem a cada deploy (Vercel sem Blob store). */
-export const STORAGE_EPHEMERAL = !process.env.BLOB_READ_WRITE_TOKEN && fsBackend.IS_EPHEMERAL;
+export const STORAGE_EPHEMERAL = !HAS_BLOB && fsBackend.IS_EPHEMERAL;
 export const UPLOADS_DIR = fsBackend.UPLOADS_DIR;
 
 export function newId(bytes = 9) {
