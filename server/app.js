@@ -101,7 +101,7 @@ function requireAuth(req, res, next) {
 }
 
 app.get("/api/session", (req, res) => {
-  res.json({ authRequired: Boolean(ATTENDANT_TOKEN), authed: isAuthed(req), aiAvailable: aiAvailable(), publicUrl: publicUrl(req), storage: store.BACKEND_NAME });
+  res.json({ authRequired: Boolean(ATTENDANT_TOKEN), authed: isAuthed(req), aiAvailable: aiAvailable(), publicUrl: publicUrl(req), storage: store.BACKEND_NAME, storageEphemeral: store.STORAGE_EPHEMERAL });
 });
 
 app.post("/api/session", rateLimit({ windowMs: 10 * 60 * 1000, max: 20 }), (req, res) => {
@@ -187,6 +187,12 @@ function toOption(ex, label = "Opção 1") {
   };
 }
 
+function describeIssues(zodError) {
+  const first = zodError.issues[0];
+  const where = first?.path?.length ? ` (campo: ${first.path.join(".")})` : "";
+  return `Dados inválidos no orçamento${where}: ${(first?.message || "verifique os campos").replace(/.$/, "")}.`;
+}
+
 /* ---------- API do atendente ---------- */
 app.post("/api/extract", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000, max: 30 }), async (req, res, next) => {
   try {
@@ -247,7 +253,7 @@ app.get("/api/proposals", requireAuth, async (req, res, next) => {
 app.post("/api/proposals", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000, max: 60 }), async (req, res, next) => {
   try {
     const parsed = ProposalInput.safeParse(stripMeta(req.body || {}));
-    if (!parsed.success) return res.status(400).json({ error: "Dados inválidos no orçamento.", issues: parsed.error.issues.slice(0, 5) });
+    if (!parsed.success) return res.status(400).json({ error: describeIssues(parsed.error), issues: parsed.error.issues.slice(0, 5) });
     const now = new Date().toISOString();
     const proposal = { id: store.newId(), ...parsed.data, createdAt: now, updatedAt: now, stats: { views: 0, chosenOption: null } };
     await store.saveProposal(proposal);
@@ -261,7 +267,7 @@ app.put("/api/proposals/:id", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000,
     const existing = await store.getProposal(req.params.id);
     if (!existing) return res.status(404).json({ error: "Orçamento não encontrado." });
     const parsed = ProposalInput.safeParse(stripMeta(req.body || {}));
-    if (!parsed.success) return res.status(400).json({ error: "Dados inválidos no orçamento.", issues: parsed.error.issues.slice(0, 5) });
+    if (!parsed.success) return res.status(400).json({ error: describeIssues(parsed.error), issues: parsed.error.issues.slice(0, 5) });
     const proposal = { ...existing, ...parsed.data, id: existing.id, createdAt: existing.createdAt, stats: existing.stats, updatedAt: new Date().toISOString() };
     await store.saveProposal(proposal);
     for (const o of proposal.options) for (const h of o.hotels) await store.addToLibrary({ name: h.name, city: h.city, photos: h.photos });
@@ -313,9 +319,14 @@ app.use(express.static(PUBLIC_DIR, { index: "index.html", dotfiles: "deny", exte
 /* ---------- Erros ---------- */
 app.use((req, res) => res.status(404).json({ error: "Não encontrado." }));
 app.use((err, req, res, next) => {
-  const status = err.status || (err.type === "entity.too.large" ? 413 : 500);
+  let status = err.status || err.statusCode || (err.type === "entity.too.large" ? 413 : 500);
+  let message = err.message || "Erro.";
+  if (err.type === "entity.too.large") message = "Imagem muito grande pra enviar. Tire um print menor ou recorte só a cotação.";
+  else if (err.code === "EROFS" || err.code === "EACCES" || err.code === "EPERM") { status = 503; message = "O servidor não consegue gravar arquivos. Na Vercel, crie um Blob store (Storage → Blob), conecte ao projeto e faça o deploy de novo."; }
+  else if (/^Blob/.test(err.name || "")) { status = 503; message = `Falha no Vercel Blob: ${err.message}. Confira se o Blob store está conectado ao projeto (BLOB_READ_WRITE_TOKEN).`; }
+  else if (status >= 500 && IS_PROD) message = `Erro interno no servidor (${err.name || "Error"}). Tente de novo.`;
   if (status >= 500) console.error(err);
-  res.status(status).json({ error: status >= 500 && IS_PROD ? "Erro interno. Tente de novo." : err.message || "Erro." });
+  res.status(status).json({ error: message });
 });
 
 export const STARTUP_INFO = `IA: ${aiAvailable() ? "ativa" : "SEM CHAVE (defina ANTHROPIC_API_KEY no .env)"} · Login: ${ATTENDANT_TOKEN ? "exigido" : "aberto"} · Storage: ${store.BACKEND_NAME}`;

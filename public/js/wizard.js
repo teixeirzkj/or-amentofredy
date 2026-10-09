@@ -256,6 +256,7 @@ function renderStep1() {
   wrap.append(stepTitle("1. Cole ou envie o print da cotação", "Tire um print da cotação no sistema (FRT, Azul Viagens etc.) e cole aqui com Ctrl+V. A IA lê voos, hotel, passageiros e valor."));
 
   if (!ai) wrap.append(el("div", { class: "banner banner-warn", html: `${icon("warn")}<span>A leitura por IA está desligada neste servidor (falta a chave ANTHROPIC_API_KEY no .env). Você ainda pode preencher manualmente.</span>` }));
+  if (S.session.storageEphemeral) wrap.append(el("div", { class: "banner banner-warn", html: `${icon("warn")}<span><b>Sem storage configurado na Vercel.</b> Os orçamentos gerados somem a cada deploy e os links podem parar de abrir. Crie um Blob store (Storage → Blob) e conecte ao projeto.</span>` }));
 
   if (S.pending) {
     wrap.append(
@@ -788,7 +789,14 @@ async function save() {
   const err = validateAll();
   if (err) { toast(err, "error"); return null; }
   const payload = { ...S.proposal, attendant: S.attendant };
-  const res = S.id ? await api(`/api/proposals/${S.id}`, { method: "PUT", body: payload }) : await api("/api/proposals", { method: "POST", body: payload });
+  let res;
+  try {
+    res = S.id ? await api(`/api/proposals/${S.id}`, { method: "PUT", body: payload }) : await api("/api/proposals", { method: "POST", body: payload });
+  } catch (e) {
+    // O orçamento sumiu do servidor (ex.: storage temporário na Vercel): cria de novo com um link novo.
+    if (S.id && e.status === 404) { S.id = null; res = await api("/api/proposals", { method: "POST", body: payload }); toast("O orçamento anterior não existe mais no servidor — gerei um link novo.", ""); }
+    else throw e;
+  }
   S.id = res.id; S.url = res.url;
   return res;
 }

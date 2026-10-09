@@ -6,7 +6,9 @@ import * as fsBackend from "./storage/fs.js";
 import * as blobBackend from "./storage/blob.js";
 
 const backend = process.env.BLOB_READ_WRITE_TOKEN ? blobBackend : fsBackend;
-export const BACKEND_NAME = process.env.BLOB_READ_WRITE_TOKEN ? "vercel-blob" : "arquivos locais (data/)";
+export const BACKEND_NAME = process.env.BLOB_READ_WRITE_TOKEN ? "vercel-blob" : fsBackend.IS_EPHEMERAL ? "temporário" : "arquivos locais (data/)";
+/** true quando os dados somem a cada deploy (Vercel sem Blob store). */
+export const STORAGE_EPHEMERAL = !process.env.BLOB_READ_WRITE_TOKEN && fsBackend.IS_EPHEMERAL;
 export const UPLOADS_DIR = fsBackend.UPLOADS_DIR;
 
 export function newId(bytes = 9) {

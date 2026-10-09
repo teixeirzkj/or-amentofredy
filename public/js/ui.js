@@ -75,7 +75,8 @@ export function toast(msg, kind = "") {
   host ??= document.body.appendChild(el("div", { class: "toast-host" }));
   const t = el("div", { class: `toast ${kind ? "is-" + kind : ""}`, text: msg });
   host.append(t);
-  setTimeout(() => { t.style.opacity = "0"; t.style.transition = "opacity .25s"; setTimeout(() => t.remove(), 260); }, 3200);
+  const ms = kind === "error" ? Math.min(9000, 4000 + msg.length * 30) : 3200;
+  setTimeout(() => { t.style.opacity = "0"; t.style.transition = "opacity .25s"; setTimeout(() => t.remove(), 260); }, ms);
 }
 
 /* ---------- API ---------- */

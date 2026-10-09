@@ -3,8 +3,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import os from "node:os";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-export const DATA_DIR = path.join(ROOT, "data");
+// Em serverless (Vercel/Lambda) o projeto é somente leitura: usa /tmp, que é efêmero. Serve pra testar, não pra produção.
+export const IS_EPHEMERAL = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+export const DATA_DIR = IS_EPHEMERAL ? path.join(os.tmpdir(), "fredy-orcamentos") : path.join(ROOT, "data");
 export const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 
 async function ensureDirs() {
