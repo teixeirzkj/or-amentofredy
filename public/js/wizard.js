@@ -133,10 +133,22 @@ function afterChange(path, t) {
   }
   if (/flights\.oneWay$/.test(path)) rerenderKeep();
   if (S.step === 3) {
+    if (/pricing\.promo\.(originalAmount|percent)$/.test(path)) applyPromo();
     if (/payment\.(card|boleto|pix)\.enabled$/.test(path) || /payment\.(entry|firstBigger)\.enabled$/.test(path) || /pricing\.mode$/.test(path)) rerenderKeep();
     else refreshPricePreview();
   }
   if (S.step === 4 && /notes$/.test(path)) { syncNotes(t.dataset.prev, t.value); t.dataset.prev = t.value; }
+}
+/** Promocode: valor final = original − percentual. Atualiza o estado e o campo na tela. */
+function applyPromo() {
+  const pr = opt().pricing;
+  if (!pr.promo.applied) return;
+  const orig = Number(pr.promo.originalAmount);
+  const pct = Number(pr.promo.percent);
+  if (!(orig > 0)) return;
+  pr.amount = Math.round(orig * (1 - (pct > 0 ? pct : 0) / 100) * 100) / 100;
+  const inp = body.querySelector(`[data-bind="${op("pricing.amount")}"]`);
+  if (inp) inp.value = fmtBRL(pr.amount);
 }
 function syncNotes(prev, next) {
   if (prev == null) return;
@@ -276,34 +288,8 @@ function renderStep1() {
       ? el("button", { class: "btn btn-block btn-soft", type: "button", html: `Continuar com ${plural(has, "a opção já preenchida", "as opções já preenchidas")} ${icon("arrowR")}`, onClick: () => go(2) })
       : el("button", { class: "btn btn-block", type: "button", html: `${icon("edit")} Preencher manualmente (sem print)`, onClick: () => { S.proposal.options.push(blankOption("Opção 1")); S.cur = 0; go(2); } }),
     el("p", { class: "hint", style: { textAlign: "center", marginTop: "8px" }, text: has ? "Um print novo aqui vira mais uma opção no mesmo link." : "Monte o orçamento do zero: voos, hotéis, valores e pagamento — tudo na mão." }),
-    // TEMPORÁRIO (teste): preenche um orçamento de exemplo e pula pra revisão final.
-    el("button", { class: "btn btn-block btn-ghost", type: "button", style: { marginTop: "14px", borderStyle: "dashed", borderColor: "var(--border-2)" }, html: `${icon("wand")} Preencher com exemplo (teste) — vai direto pra gerar o link`, onClick: fillDemo }),
   );
   body.append(wrap);
-}
-
-/** TEMPORÁRIO: carrega um orçamento de exemplo (Maceió, 2 opções) pra testar a geração do link sem print. */
-function fillDemo() {
-  const o1 = blankOption("Opção 1");
-  Object.assign(o1.destination, { city: "Maceió", region: "Alagoas", tagline: "O Caribe brasileiro: piscinas naturais e praias de tirar o fôlego", highlights: ["Praia do Gunga e Barra de São Miguel", "Praias de Pajuçara e Jatiúca no centro"], climate: "Tropical, média 27 graus", bestSeason: "" });
-  o1.flights.outbound = { date: "16/05/2027", origin: "CWB", destination: "MCZ", departure: "05:25", arrival: "11:10", duration: "5h 45m", airline: "Azul", connections: [{ airport: "CNF", arrival: "07:00", departure: "08:55" }] };
-  o1.flights.inbound = { date: "21/05/2027", origin: "MCZ", destination: "CWB", departure: "10:05", arrival: "21:40", duration: "11h 35m", airline: "Azul", connections: [{ airport: "REC", arrival: "10:55", departure: "17:50" }] };
-  o1.hotels = [{ ...blankHotel("Maceió"), name: "Ipioca Beach Resort", checkin: "16/05/2027", checkout: "21/05/2027", nights: 5, board: "Café da manhã" }];
-  o1.included = { flights: true, hotel: true, transfers: true, insurance: true, tours: ["City Tour e Litoral Sul"], extras: ["Serviço Assento Azul Juntos"] };
-  o1.passengers = { rooms: 1, adults: 2, children: 0 };
-  o1.pricing = { mode: "total", amount: 8000, promo: { applied: true, originalAmount: 8889.27, percent: 10 } };
-
-  const o2 = JSON.parse(JSON.stringify(o1));
-  o2.label = "Opção 2";
-  o2.hotels[0] = { ...blankHotel("Maceió"), name: "Maceió Mar Resort", checkin: "16/05/2027", checkout: "21/05/2027", nights: 5, board: "All inclusive" };
-  o2.pricing = { mode: "total", amount: 11200, promo: { applied: false, originalAmount: null, percent: null } };
-  o2.payment.highlight = "perPerson";
-
-  S.proposal.options = [o1, o2];
-  S.proposal.clientName = "Lilian Pavani";
-  S.cur = 0; S.id = null; S.url = "";
-  toast("Exemplo carregado — revise e clique em gerar.", "success");
-  go(4);
 }
 
 function dropzone({ onFile, compact = false }) {
@@ -661,14 +647,21 @@ function renderStep3() {
     el("div", { class: "row", style: { gap: "16px" } }, el("span", { class: "label", text: "O valor é total ou por pessoa?" }), radio(op("pricing.mode"), "total", "Valor total"), radio(op("pricing.mode"), "perPerson", "Por pessoa")),
     el("div", { class: "row", style: { gap: "16px", marginTop: "12px" } }, el("span", { class: "label", text: "Aplicou promocode?" }), radio(op("pricing.promo.applied"), "no", "Não"), radio(op("pricing.promo.applied"), "yes", "Sim")),
     promo ? el("div", { class: "stack", style: { marginTop: "12px" } },
-      field(`Valor original ${unit} — sem desconto (R$)`, inp(op("pricing.promo.originalAmount"), { dtype: "money", placeholder: "R$ 0,00" })),
-      field("Percentual de desconto (%)", inp(op("pricing.promo.percent"), { type: "number", dtype: "intnull", attrs: { min: 0, max: 100 } }), "Só pra exibir no orçamento (não calcula automaticamente)."),
-      field(`Valor ${unit} com desconto — final (R$)`, inp(op("pricing.amount"), { dtype: "money", cls: "input is-big", placeholder: "R$ 0,00" }), `Total pra ${plural(people, "pessoa", "pessoas")} aparece na prévia abaixo.`),
+      field(`Valor original ${unit} — sem desconto (R$)`, inp(op("pricing.promo.originalAmount"), { dtype: "money", placeholder: "R$ 0,00" }), "O valor que veio do print."),
+      field("Percentual de desconto (%)", inp(op("pricing.promo.percent"), { type: "number", dtype: "intnull", attrs: { min: 0, max: 100 } }), "O valor final é calculado sozinho."),
+      field(`Valor ${unit} com desconto — final (R$)`, inp(op("pricing.amount"), { dtype: "money", cls: "input is-big", placeholder: "R$ 0,00", attrs: { readonly: true, tabindex: -1 } }), `Calculado: original − ${Number(o.pricing.promo.percent) || 0}%. Total pra ${plural(people, "pessoa", "pessoas")} aparece na prévia abaixo.`),
     ) : field(`Valor ${unit} (R$)`, inp(op("pricing.amount"), { dtype: "money", cls: "input is-big", placeholder: "R$ 0,00" })),
     el("div", { id: "discountCard" }),
   ]);
   // radios de promo usam yes/no → converte pra boolean
-  valueSec.querySelectorAll(`[name="${op("pricing.promo.applied")}"]`).forEach((r) => { r.checked = (r.value === "yes") === promo; r.removeAttribute("data-bind"); r.addEventListener("change", () => { o.pricing.promo.applied = r.value === "yes"; rerenderKeep(); }); });
+  valueSec.querySelectorAll(`[name="${op("pricing.promo.applied")}"]`).forEach((r) => { r.checked = (r.value === "yes") === promo; r.removeAttribute("data-bind"); r.addEventListener("change", () => {
+    const yes = r.value === "yes";
+    if (yes && !o.pricing.promo.applied && !(Number(o.pricing.promo.originalAmount) > 0)) o.pricing.promo.originalAmount = o.pricing.amount;
+    if (!yes && o.pricing.promo.applied && Number(o.pricing.promo.originalAmount) > 0) o.pricing.amount = o.pricing.promo.originalAmount;
+    o.pricing.promo.applied = yes;
+    applyPromo();
+    rerenderKeep();
+  }); });
   wrap.append(valueSec);
 
   const payIco = (n) => `<span class="pay-ico">${icon(n)}</span>`;
