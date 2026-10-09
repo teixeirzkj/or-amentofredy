@@ -66,6 +66,12 @@ export async function saveUpload(buf) {
   return { id, url, mime: kind.mime };
 }
 
+const UPLOAD_ID = /^[A-Za-z0-9_-]{6,40}\.(png|jpg|webp)$/;
+export async function getUpload(id) {
+  if (!UPLOAD_ID.test(id || "")) return null;
+  return backend.readImage(id);
+}
+
 /* ---------- Biblioteca de fotos por hotel ---------- */
 export function hotelKey(name, city = "") {
   return `${name} ${city}`

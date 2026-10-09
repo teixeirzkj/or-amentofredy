@@ -53,7 +53,7 @@ Barra "Escolha sua opção" (quando há mais de uma), capa com destino e tagline
 
 ## Deploy na Vercel
 
-O repositório já está preparado (`vercel.json` + `api/index.js`). Na Vercel não há disco persistente, então propostas e fotos vão pro **Vercel Blob**.
+O repositório já está preparado (`vercel.json` + `api/index.js`). Na Vercel não há disco persistente, então propostas e fotos vão pro **Vercel Blob** (store público ou privado, tanto faz: tudo é gravado como privado e as fotos são servidas pelo app).
 
 1. Importe o repositório na Vercel (framework: *Other*, sem build command).
 2. Em **Storage → Create → Blob**, crie um store e conecte ao projeto. Isso cria a variável `BLOB_READ_WRITE_TOKEN` sozinha. Sem ela o app roda, mas perde os dados a cada deploy.

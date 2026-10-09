@@ -42,12 +42,25 @@ export async function listJson(prefix, { max = 80 } = {}) {
   return docs.filter(Boolean);
 }
 
+// Fotos também ficam privadas (funciona em store público ou privado) e são servidas pelo app em /uploads/:id.
 export async function writeImage(id, buf, mime) {
-  const blob = await put(`${PREFIX}uploads/${id}`, buf, {
-    access: "public",
+  await put(`${PREFIX}uploads/${id}`, buf, {
+    access: "private",
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: mime,
-    cacheControlMaxAge: 60 * 60 * 24 * 365,
   });
-  return blob.url;
+  return `/uploads/${id}`;
+}
+
+export async function readImage(id) {
+  try {
+    const res = await get(`${PREFIX}uploads/${id}`, { access: "private" });
+    if (!res || res.statusCode !== 200 || !res.stream) return null;
+    const buf = Buffer.from(await new Response(res.stream).arrayBuffer());
+    return { buf, mime: res.blob.contentType || "application/octet-stream" };
+  } catch (err) {
+    if (err instanceof BlobNotFoundError || err?.name === "BlobNotFoundError") return null;
+    throw err;
+  }
 }

@@ -309,7 +309,15 @@ app.post("/api/public/proposals/:id/choose", rateLimit({ windowMs: 60 * 1000, ma
 });
 
 /* ---------- Páginas e arquivos ---------- */
-app.use("/uploads", express.static(store.UPLOADS_DIR, { maxAge: "30d", immutable: true, index: false, dotfiles: "deny" }));
+app.get("/uploads/:id", async (req, res, next) => {
+  try {
+    const img = await store.getUpload(req.params.id);
+    if (!img) return res.status(404).send("Foto não encontrada.");
+    res.setHeader("Content-Type", img.mime);
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.send(img.buf);
+  } catch (err) { next(err); }
+});
 app.get("/p/:id", (req, res) => {
   if (!store.isValidId(req.params.id)) return res.status(404).send("Orçamento não encontrado.");
   res.sendFile(path.join(PUBLIC_DIR, "proposta.html"));

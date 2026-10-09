@@ -50,3 +50,14 @@ export async function writeImage(id, buf) {
   await fs.writeFile(path.join(UPLOADS_DIR, id), buf);
   return `/uploads/${id}`;
 }
+
+const MIME = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" };
+export async function readImage(id) {
+  try {
+    const buf = await fs.readFile(path.join(UPLOADS_DIR, id));
+    return { buf, mime: MIME[id.split(".").pop()] || "application/octet-stream" };
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+}
