@@ -78,6 +78,8 @@ export const Option = obj({
     highlight: z.preprocess((v) => (["installment", "perPerson", "total"].includes(v) ? v : "installment"), z.enum(["installment", "perPerson", "total"])),
   }),
   notes: S(3000),
+  // Avisos da leitura por IA ainda não conferidos pelo atendente (somem ao clicar em "Conferi").
+  flags: arr(obj({ field: S(40), note: S(200) }), 10),
 });
 
 export const ProposalInput = z.object({
@@ -90,5 +92,6 @@ export const ProposalInput = z.object({
 export function sanitizeForPublic(p) {
   // O cliente não precisa do e-mail do atendente nem de estatísticas internas.
   const { attendant, stats, ...rest } = p;
-  return { ...rest, attendant: { name: attendant?.name || "", whatsapp: attendant?.whatsapp || "" }, chosenOption: stats?.chosenOption ?? null };
+  const options = (rest.options || []).map(({ flags, ...o }) => o);
+  return { ...rest, options, attendant: { name: attendant?.name || "", whatsapp: attendant?.whatsapp || "" }, chosenOption: stats?.chosenOption ?? null };
 }

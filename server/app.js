@@ -243,8 +243,12 @@ app.post("/api/library/report", requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/** O navegador manda os avisos da IA em _meta; guardamos só os não conferidos em "flags". */
 function stripMeta(input) {
-  const options = (input.options || []).map(({ _meta, ...o }) => o);
+  const options = (input.options || []).map(({ _meta, ...o }) => ({
+    ...o,
+    flags: Array.isArray(_meta?.uncertainties) ? _meta.uncertainties.filter((u) => u && typeof u === "object") : o.flags || [],
+  }));
   return { ...input, options };
 }
 

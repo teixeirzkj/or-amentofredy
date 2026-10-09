@@ -401,8 +401,10 @@ function dismissFlag(o, flag) {
   renderFlagSummary();
 }
 function flagPath(flag) {
-  const p = FLAG_MAP[flag.field];
+  let p = FLAG_MAP[flag.field];
   if (!p) return null;
+  // Com promocode, o valor editável é o original (o final é calculado).
+  if (p === "pricing.amount" && opt()?.pricing?.promo?.applied) p = "pricing.promo.originalAmount";
   return p.startsWith("proposal.") ? p : op(p);
 }
 /** Marca em amarelo os campos com aviso que estão na tela e põe a nota embaixo deles. */
@@ -1006,7 +1008,7 @@ async function fillList(host, close) {
 async function loadForEdit(id) {
   try {
     const { proposal, url } = await api(`/api/proposals/${encodeURIComponent(id)}`);
-    S.proposal = { clientName: proposal.clientName, validUntil: proposal.validUntil, attendant: proposal.attendant, options: proposal.options.map((o) => ({ ...o, _meta: { uncertainties: [] } })) };
+    S.proposal = { clientName: proposal.clientName, validUntil: proposal.validUntil, attendant: proposal.attendant, options: proposal.options.map(({ flags, ...o }) => ({ ...o, _meta: { uncertainties: Array.isArray(flags) ? flags : [] } })) };
     S.id = proposal.id; S.url = url; S.cur = 0; S.step = 4;
     toast("Orçamento carregado pra edição.", "success");
   } catch (err) { toast(err.message, "error"); }
