@@ -328,7 +328,8 @@ app.get("/p/:id", (req, res) => {
   if (!store.isValidId(req.params.id)) return res.status(404).send("Orçamento não encontrado.");
   res.sendFile(path.join(PUBLIC_DIR, "proposta.html"));
 });
-app.use(express.static(PUBLIC_DIR, { index: "index.html", dotfiles: "deny", extensions: ["html"] }));
+// Sem Cache-Control o navegador guarda JS/CSS por horas e mistura versão velha com API nova. "no-cache" = sempre revalida (ETag), custo mínimo.
+app.use(express.static(PUBLIC_DIR, { index: "index.html", dotfiles: "deny", extensions: ["html"], etag: true, setHeaders: (res) => res.setHeader("Cache-Control", "no-cache") }));
 
 /* ---------- Erros ---------- */
 app.use((req, res) => res.status(404).json({ error: "Não encontrado." }));
