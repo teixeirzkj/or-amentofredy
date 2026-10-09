@@ -1,5 +1,5 @@
 // Gerador de orçamento em 4 passos: print → revisão → valor → revisão final → link.
-import { el, esc, icon, api, toast, initTheme, debounce, copyText, normalizeImage, nightsBetween, toBR, parseBR, brToISO, isoToBR, monthName, firstName, plural } from "./ui.js";
+import { el, esc, icon, api, toast, initTheme, debounce, copyText, normalizeImage, fileToDataURL, nightsBetween, toBR, parseBR, brToISO, isoToBR, monthName, firstName, plural } from "./ui.js";
 import { fmtBRL, parseMoney, computePricing, highlightBlock, paymentLines, highlightSummary, whatsappText, peopleCount } from "./money.js";
 
 /* =========================================================
@@ -89,7 +89,7 @@ function showLogin() { document.getElementById("loginOverlay").hidden = false; s
 
 /* Colar imagem em qualquer lugar da tela */
 document.addEventListener("paste", async (e) => {
-  const file = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/"));
+  const file = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/") || f.type === "application/pdf");
   if (!file) return;
   e.preventDefault();
   if (sheetDrop) { await handlePrintFile(file, sheetDrop); return; }
@@ -105,6 +105,13 @@ function onFieldInput(e) {
   const t = e.target;
   const path = t.dataset.bind;
   if (!path) return;
+  // Editou um campo marcado em amarelo: considera conferido.
+  const flagged = t.closest(".is-flagged");
+  if (flagged) {
+    const f = flagsOf().find((x) => x.field === flagged.dataset.flagField);
+    flagged.classList.remove("is-flagged"); flagged.querySelector(".flag-note")?.remove();
+    if (f) dismissFlag(opt(), f);
+  }
   let v;
   if (t.type === "checkbox") v = t.checked;
   else if (t.type === "radio") { if (!t.checked) return; v = t.value; }
@@ -210,6 +217,7 @@ function render() {
     return;
   }
   ({ 1: renderStep1, 2: renderStep2, 3: renderStep3, 4: renderStep4, 5: renderResult })[S.step]();
+  if (S.step >= 2 && S.step <= 4) applyFlags();
   body.scrollTop = S._keepScroll ? scroll : 0;
   S._keepScroll = false;
 }
@@ -241,7 +249,9 @@ function select(path, options, { allowOther = true } = {}) {
   const v = get(S, path) ?? "";
   const list = [...options];
   if (allowOther && v && !list.includes(v)) list.unshift(v);
-  return el("select", { class: "select", "data-bind": path }, list.map((o) => el("option", { value: o, selected: o === v, text: o })));
+  const sel = el("select", { class: "select", "data-bind": path }, list.map((o) => el("option", { value: o, selected: o === v, text: o })));
+  if (allowOther && !v) sel.prepend(el("option", { value: "", selected: true, text: "— selecione —" }));
+  return sel;
 }
 function check(path, label) {
   return el("label", { class: "check" }, el("input", { type: "checkbox", "data-bind": path, checked: Boolean(get(S, path)) }), el("span", { text: label }));
@@ -271,10 +281,13 @@ function renderStep1() {
   if (S.session.storageEphemeral) wrap.append(el("div", { class: "banner banner-warn", html: `${icon("warn")}<span><b>Sem storage configurado na Vercel.</b> Os orçamentos gerados somem a cada deploy e os links podem parar de abrir. Crie um Blob store (Storage → Blob) e conecte ao projeto.</span>` }));
 
   if (S.pending) {
+    const isPdf = S.pending.startsWith("data:application/pdf");
     wrap.append(
-      el("div", { class: "preview-img" }, el("img", { src: S.pending, alt: "Print da cotação" })),
+      isPdf
+        ? el("div", { class: "preview-pdf", html: `${icon("doc")}<div><b>${esc(S.pendingName || "cotacao.pdf")}</b><span>PDF pronto pra leitura</span></div>` })
+        : el("div", { class: "preview-img" }, el("img", { src: S.pending, alt: "Print da cotação" })),
       el("div", { class: "row", style: { marginTop: "14px", justifyContent: "flex-end" } },
-        el("button", { class: "btn", type: "button", text: "Trocar imagem", onClick: () => { S.pending = null; render(); } }),
+        el("button", { class: "btn", type: "button", text: "Trocar arquivo", onClick: () => { S.pending = null; render(); } }),
         el("button", { class: "btn btn-primary", type: "button", html: `${icon("wand")} Extrair dados com IA`, disabled: !ai, onClick: () => runExtraction(S.pending, `Opção ${S.proposal.options.length + 1}`, { asNewOption: S.proposal.options.length > 0 }) }),
       ),
     );
@@ -295,10 +308,10 @@ function renderStep1() {
 function dropzone({ onFile, compact = false }) {
   const z = el("div", { class: "dropzone" },
     el("div", { class: "ico-big", html: icon("upload") }),
-    el("h3", { text: compact ? "Cole, arraste ou clique" : "Clique para enviar ou arraste uma imagem" }),
+    el("h3", { text: compact ? "Cole, arraste ou clique" : "Clique para enviar ou arraste o print ou PDF da cotação" }),
     el("p", { text: "Também dá pra colar com Ctrl+V em qualquer lugar desta tela" }),
-    el("div", { class: "formats", text: "Formatos aceitos: PNG, JPEG, WEBP · imagens grandes são comprimidas sozinhas" }),
-    el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", onChange: (e) => { const f = e.target.files?.[0]; if (f) onFile(f); } }),
+    el("div", { class: "formats", text: "Formatos aceitos: PNG, JPEG, WEBP ou PDF (até 3 MB) · imagens grandes são comprimidas sozinhas" }),
+    el("input", { type: "file", accept: "image/png,image/jpeg,image/webp,application/pdf", onChange: (e) => { const f = e.target.files?.[0]; if (f) onFile(f); } }),
   );
   z.addEventListener("dragover", (e) => { e.preventDefault(); z.classList.add("is-over"); });
   z.addEventListener("dragleave", () => z.classList.remove("is-over"));
@@ -307,12 +320,20 @@ function dropzone({ onFile, compact = false }) {
 }
 
 async function handlePrintFile(file, target) {
-  if (!file.type.startsWith("image/")) return toast("Envie uma imagem (PNG, JPEG ou WEBP).", "error");
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+  if (!isPdf && !file.type.startsWith("image/")) return toast("Envie um print (PNG, JPEG, WEBP) ou um PDF.", "error");
   try {
-    const dataUrl = await normalizeImage(file, { maxPx: 2200, maxBytes: 3 * 1024 * 1024, keepPng: true });
+    let dataUrl;
+    if (isPdf) {
+      if (file.size > 3 * 1024 * 1024) return toast("PDF acima de 3 MB. Exporte uma versão mais leve ou tire um print da cotação.", "error");
+      dataUrl = await fileToDataURL(file);
+      if (!dataUrl.startsWith("data:application/pdf")) dataUrl = dataUrl.replace(/^data:[^;]*;/, "data:application/pdf;");
+    } else {
+      dataUrl = await normalizeImage(file, { maxPx: 2200, maxBytes: 3 * 1024 * 1024, keepPng: true });
+    }
     if (target) target.onPrint(dataUrl);
-    else { S.pending = dataUrl; render(); }
-  } catch { toast("Não consegui ler essa imagem.", "error"); }
+    else { S.pending = dataUrl; S.pendingName = file.name || ""; render(); }
+  } catch { toast("Não consegui ler esse arquivo.", "error"); }
 }
 
 async function runExtraction(dataUrl, label = "Opção 1", { asNewOption = false } = {}) {
@@ -321,8 +342,8 @@ async function runExtraction(dataUrl, label = "Opção 1", { asNewOption = false
     const { option } = await api("/api/extract", { method: "POST", body: { image: dataUrl, label } });
     option.notes = DEFAULT_NOTES;
     if (!option.hotels.length) option.hotels = [blankHotel(option.destination.city)];
-    if (!option.flights.outbound.airline) option.flights.outbound.airline = "Azul";
-    if (!option.flights.inbound.airline) option.flights.inbound.airline = "Azul";
+    option._meta ??= {};
+    option._meta.uncertainties = normalizeFlags(option._meta.uncertainties, option);
     S.proposal.options.push(option);
     S.cur = S.proposal.options.length - 1;
     if (!S.proposal.clientName && option._meta?.clientName) S.proposal.clientName = option._meta.clientName;
@@ -334,6 +355,93 @@ async function runExtraction(dataUrl, label = "Opção 1", { asNewOption = false
     S.extracting = false; render();
     toast(err.message || "Falha ao extrair. Tente outro print.", "error");
   }
+}
+
+/* =========================================================
+   Avisos por campo ("a IA ficou em dúvida")
+   ========================================================= */
+// Chave que a IA devolve → caminho do campo dentro da opção (ou "proposal.x" pra campos gerais)
+const FLAG_MAP = {
+  client_name: "proposal.clientName",
+  destination: "destination.city",
+  passengers: "passengers.adults",
+  "outbound.airline": "flights.outbound.airline", "outbound.date": "flights.outbound.date", "outbound.times": "flights.outbound.departure",
+  "outbound.duration": "flights.outbound.duration", "outbound.connections": "flights.outbound.connections.0.airport",
+  "inbound.airline": "flights.inbound.airline", "inbound.date": "flights.inbound.date", "inbound.times": "flights.inbound.departure",
+  "inbound.duration": "flights.inbound.duration", "inbound.connections": "flights.inbound.connections.0.airport",
+  "hotel.name": "hotels.0.name", "hotel.dates": "hotels.0.checkin", "hotel.nights": "hotels.0.nights", "hotel.board": "hotels.0.board", "hotel.room": "hotels.0.room",
+  "included.transfers": "included.transfers", "included.insurance": "included.insurance", "included.tours": "included.tours", "included.extras": "included.extras",
+  "pricing.total": "pricing.amount", "pricing.per_person": "pricing.amount", "pricing.taxes": "pricing.amount",
+};
+const FLAG_STEP = (field) => (field === "client_name" ? 4 : field.startsWith("pricing") ? 3 : 2);
+
+/** Aceita o formato antigo (strings), descarta chaves desconhecidas e acrescenta avisos automáticos pra campos vazios importantes. */
+function normalizeFlags(list, o) {
+  const out = [];
+  for (const u of list || []) {
+    if (typeof u === "string") { out.push({ field: "other", note: u }); continue; }
+    if (!u?.note) continue;
+    out.push({ field: FLAG_MAP[u.field] ? u.field : "other", note: u.note });
+  }
+  const has = (f) => out.some((x) => x.field === f);
+  if (!o.flights.oneWay || o.flights.outbound.origin) {
+    if (!o.flights.outbound.airline && !has("outbound.airline")) out.push({ field: "outbound.airline", note: "Companhia não identificada no print" });
+    if (!o.flights.oneWay && o.flights.inbound.origin && !o.flights.inbound.airline && !has("inbound.airline")) out.push({ field: "inbound.airline", note: "Companhia não identificada no print" });
+  }
+  if (!(Number(o.passengers.adults) > 0) && !has("passengers")) out.push({ field: "passengers", note: "Quantidade de passageiros não apareceu" });
+  if (!(Number(o.pricing.amount) > 0) && !has("pricing.total")) out.push({ field: "pricing.total", note: "Valor não apareceu no print" });
+  if (!o.destination.city && !has("destination")) out.push({ field: "destination", note: "Destino não identificado" });
+  return out.slice(0, 10);
+}
+function flagsOf(o = opt()) { return o?._meta?.uncertainties || []; }
+function dismissFlag(o, flag) {
+  const list = flagsOf(o);
+  const i = list.indexOf(flag);
+  if (i >= 0) list.splice(i, 1);
+  renderFlagSummary();
+}
+function flagPath(flag) {
+  const p = FLAG_MAP[flag.field];
+  if (!p) return null;
+  return p.startsWith("proposal.") ? p : op(p);
+}
+/** Marca em amarelo os campos com aviso que estão na tela e põe a nota embaixo deles. */
+function applyFlags() {
+  const o = opt();
+  if (!o) return;
+  for (const flag of flagsOf(o)) {
+    const path = flagPath(flag);
+    if (!path) continue;
+    const input = body.querySelector(`[data-bind="${path}"]`);
+    if (!input) continue;
+    const host = input.closest(".field, .check, .pay-row") || input.parentElement;
+    host.classList.add("is-flagged");
+    host.dataset.flagField = flag.field;
+    const note = el("div", { class: "flag-note" },
+      el("span", { html: `${icon("warn")} ${esc(flag.note)}` }),
+      el("button", { type: "button", text: "Conferi ✓", onClick: () => { host.classList.remove("is-flagged"); note.remove(); dismissFlag(o, flag); } }),
+    );
+    host.append(note);
+  }
+  renderFlagSummary();
+}
+/** Resumo no topo do passo: quantos avisos faltam (neste passo e nos outros) + os que não têm campo. */
+function renderFlagSummary() {
+  const host = document.getElementById("flagSummary");
+  if (!host) return;
+  const list = flagsOf();
+  host.innerHTML = "";
+  if (!list.length) return;
+  const here = list.filter((f) => f.field !== "other" && FLAG_STEP(f.field) === S.step);
+  const elsewhere = list.filter((f) => f.field !== "other" && FLAG_STEP(f.field) !== S.step);
+  const others = list.filter((f) => f.field === "other");
+  const parts = [];
+  if (here.length) parts.push(`<b>${plural(here.length, "campo marcado", "campos marcados")} em amarelo</b> nesta tela — confira e clique em "Conferi".`);
+  if (elsewhere.length) parts.push(`${plural(elsewhere.length, "aviso", "avisos")} ${elsewhere.length === 1 ? "aparece" : "aparecem"} no passo ${[...new Set(elsewhere.map((f) => FLAG_STEP(f.field)))].join(" e ")}.`);
+  host.append(el("div", { class: "banner banner-warn" }, el("span", { html: icon("warn") }), el("div", {},
+    el("div", { html: parts.join(" ") || "Avisos da leitura:" }),
+    others.length ? el("ul", {}, others.map((f) => el("li", {}, el("span", { text: f.note }), el("button", { type: "button", class: "flag-dismiss", text: "ok", onClick: (e) => { e.currentTarget.parentElement.remove(); dismissFlag(opt(), f); } })))) : null,
+  )));
 }
 
 /** Liga hotéis extraídos à biblioteca de fotos, se já existirem lá. */
@@ -405,8 +513,7 @@ function renderStep2() {
   const wrap = el("div", {});
   wrap.append(stepTitle("2. Revise os dados extraídos", "Confira cada campo com o print. O que a IA não achou fica em branco."), optionsBar());
 
-  const unc = o._meta?.uncertainties || [];
-  if (unc.length) wrap.append(el("div", { class: "banner banner-warn" }, el("span", { html: icon("warn") }), el("div", {}, el("b", { text: "A IA ficou em dúvida em:" }), el("ul", {}, unc.map((u) => el("li", { text: u }))))));
+  wrap.append(el("div", { id: "flagSummary" }));
 
   /* Destino */
   const cityInput = inp(op("destination.city"), { placeholder: "Ex: Maceió" });
@@ -633,7 +740,7 @@ function validateStep2() {
 function renderStep3() {
   const o = opt();
   const wrap = el("div", {});
-  wrap.append(stepTitle("3. Valor e desconto"), optionsBar());
+  wrap.append(stepTitle("3. Valor e desconto"), optionsBar(), el("div", { id: "flagSummary" }));
 
   const breakdown = o._meta?.breakdown?.length ? el("div", { class: "banner banner-info" }, el("span", { html: icon("info") }), el("div", {}, el("b", { text: "No print:" }), el("ul", {}, o._meta.breakdown.map((b) => el("li", { text: `${b.label}: ${fmtBRL(b.value)}` }))))) : null;
 
@@ -746,7 +853,7 @@ function renderStep4() {
   const o = opt();
   const P = S.proposal;
   const wrap = el("div", {});
-  wrap.append(stepTitle("4. Revisão final"), el("p", { class: "step-sub", text: "Confira o orçamento inteiro. Edite o que quiser direto aqui — ou use 'Editar' pra voltar e ajustar viagem e valor com detalhe. Quando estiver tudo certo, gere o link ou PDF." }), optionsBar());
+  wrap.append(stepTitle("4. Revisão final"), el("p", { class: "step-sub", text: "Confira o orçamento inteiro. Edite o que quiser direto aqui — ou use 'Editar' pra voltar e ajustar viagem e valor com detalhe. Quando estiver tudo certo, gere o link ou PDF." }), optionsBar(), el("div", { id: "flagSummary" }));
 
   const valid = inp("proposal.validUntil", { type: "date", dtype: "isodate" });
   wrap.append(sec("Cliente e validade", "users", [

@@ -73,7 +73,12 @@ export const ExtractionSchema = z.object({
     breakdown: z.array(z.object({ label: z.string(), value: z.number() })).describe("Linhas de valores que aparecem no print"),
   }),
   editorial: EditorialSchema,
-  uncertainties: z.array(z.string()).describe("Campos em que você não teve certeza, em português, pra o atendente conferir"),
+  uncertainties: z.array(z.object({
+    field: z.string().describe(
+      "Qual campo precisa de conferência. Use exatamente um destes: client_name, destination, passengers, outbound.airline, outbound.date, outbound.times, outbound.duration, outbound.connections, inbound.airline, inbound.date, inbound.times, inbound.duration, inbound.connections, hotel.name, hotel.dates, hotel.nights, hotel.board, hotel.room, included.transfers, included.insurance, included.tours, included.extras, pricing.total, pricing.per_person, pricing.taxes, other",
+    ),
+    note: z.string().describe("Motivo, curto (até 12 palavras), em português. Ex: 'Só o logo aparece; parece Copa'"),
+  })).describe("Só o que ficou ambíguo, deduzido ou ausente E que importa pro orçamento. No máximo 6 itens, os mais relevantes primeiro."),
 });
 
 /** Converte "" e 0 de volta pra null e remove trechos de voo ausentes (formato que o resto do servidor espera). */
@@ -93,19 +98,24 @@ function normalize(ex) {
   };
 }
 
-const SYSTEM = `Você lê prints (capturas de tela) de cotações de pacotes de viagem feitas em sistemas de agência (ex: FRT, Azul Viagens, CVC, Decolar) e extrai os dados pra montar um orçamento pro cliente.
+const SYSTEM = `Você lê cotações de pacotes de viagem (print de tela ou PDF) feitas em sistemas de agência e operadoras (FRT, Incomum/Braztoa, Orintravel, ViajarFar, Azul Viagens, CVC, Decolar...) e extrai os dados pra montar um orçamento pro cliente.
 
 Regras:
-- Extraia só o que está no print. Se um texto não aparece, use "" (string vazia); se um número não aparece, use 0; listas vazias quando não houver. Nunca invente horários, datas ou valores.
-- Passageiros: "ADT" = adulto, "CHD" = criança, "INF" = bebê. Se o print lista um ADT por linha, conte-os.
-- Datas sempre em DD/MM/AAAA e horas em HH:MM (24h).
+- Extraia só o que está no documento. Se um texto não aparece, use "" (string vazia); se um número não aparece, use 0; listas vazias quando não houver. Nunca invente horários, datas ou valores.
+- Passageiros: "ADT" = adulto, "CHD" = criança, "INF" = bebê. Nos sistemas Infotravel (FRT, Incomum, Orintravel) cada passageiro é uma linha "(idade) TIPO" à direita, ex: "(30) ADT", "(6) CHD": conte as linhas do bloco do hotel pra saber adultos e crianças (o "(30)" é a idade, não um código). Em PDFs, use a tabela "Passageiros" ou "Pax: N".
+- Nesses mesmos sistemas, cada linha de voo tem: número do voo, origem com data/hora de saída, destino com data/hora de chegada e classe. Dois voos seguidos no mesmo dia formam um trecho com conexão (o aeroporto do meio é a conexão). A companhia aparece só pelo logo; se reconhecer (Azul, Gol, Latam, Copa...), preencha e marque em uncertainties como "deduzida pelo logo".
+- Ícones de bagagem com "0x/1x" ao lado da classe não têm legenda: não liste bagagem em "extras" a partir deles; se quiser, marque "included.extras" em uncertainties.
+- Linhas "TRASLADO"/"Transfer" = included.transfers true; "SEGURO" = included.insurance true; "PASSEIOS" = cada passeio em included.tours (nome curto, sem o texto operacional).
+- "Total da compra" / "Total" = pricing.total. "Taxas inclusas R$ X" ou "Taxas: BRL X" = pricing.taxes. Se houver um bloco de pagamentos (ex: "Cartão de Crédito 12x BRL 8318"), coloque cada linha em pricing.breakdown.
+- Se o documento tiver várias opções/abas ("Orçamento 1, 2, 3"), extraia a que está aberta/visível e avise em uncertainties (field "other") que existem outras.
+- Datas sempre em DD/MM/AAAA e horas em HH:MM (24h). Se a chegada for no dia seguinte, mantenha a hora e avise em uncertainties (field "inbound.times" ou "outbound.times").
 - Códigos de aeroporto em IATA maiúsculo (CWB, MCZ, CNF, REC, GRU...).
 - No voo com conexão, "origin" e "destination" são os aeroportos de origem e destino FINAL do trecho; cada parada vai em "connections" com a hora que o avião chega e a hora que parte dessa conexão.
 - Itinerários costumam listar os trechos em ordem: o primeiro bloco é a ida e o segundo a volta.
 - Valores em reais como número (8889.27, não "R$ 8.889,27").
 - "editorial" é a única parte que vem do seu conhecimento, não do print: escreva algo curto e vendedor sobre o destino, em português do Brasil.
 - Traslado e seguro viagem entram só como true em "included.transfers" e "included.insurance"; não repita esses itens em "extras". Em "extras" vão só serviços além disso (bagagem despachada, assento marcado, passeio extra...), em texto curto.
-- Liste em "uncertainties" tudo que ficou ambíguo ou cortado no print.`;
+- "uncertainties": só o que ficou ambíguo, deduzido ou ausente E que muda o orçamento (passageiros, valores, datas, companhia, hotel). Não liste o que é só informativo (ex: "nome do cliente não aparece" só se o campo for pedido). Máximo 6 itens, frases curtas, e o "field" sempre da lista permitida.`;
 
 let client;
 function getClient() {
@@ -124,7 +134,7 @@ export function aiAvailable() {
 function mapAiError(err) {
   if (!err?.status) return err;
   // Mensagem original da API (ex.: "credit balance is too low"), sem o JSON em volta.
-  const detail = (err?.error?.error?.message || err?.error?.message || String(err.message || "")).replace(/^d{3}s*/, "").slice(0, 300);
+  const detail = (err?.error?.error?.message || err?.error?.message || String(err.message || "")).replace(/^\d{3}\s*/, "").slice(0, 300);
   console.error("[anthropic]", err.status, detail);
   const mk = (msg, status) => Object.assign(new Error(msg), { status, detail });
   if (err.status === 401 || err.status === 403) return mk("A chave da API da Anthropic no servidor é inválida. Avise quem cuida do sistema.", 503);
@@ -139,11 +149,14 @@ async function withAi(fn) {
 }
 
 /**
- * @param {{ data: string, mime: string }} image  base64 (sem prefixo data:) + mime
+ * @param {{ data: string, mime: string }} file  base64 (sem prefixo data:) + mime (imagem ou application/pdf)
  * @returns {Promise<z.infer<typeof ExtractionSchema>>}
  */
 export async function extractFromImage({ data, mime }) {
   const anthropic = getClient();
+  const block = mime === "application/pdf"
+    ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
+    : { type: "image", source: { type: "base64", media_type: mime, data } };
   const response = await withAi(() => anthropic.messages.parse({
     model: MODEL,
     max_tokens: 8000,
@@ -152,7 +165,7 @@ export async function extractFromImage({ data, mime }) {
       {
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: mime, data } },
+          block,
           { type: "text", text: "Extraia os dados desta cotação de viagem." },
         ],
       },

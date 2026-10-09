@@ -119,17 +119,19 @@ app.delete("/api/session", (req, res) => {
 });
 
 /* ---------- Helpers ---------- */
-function decodeImage(body) {
+function decodeImage(body, { allowPdf = false } = {}) {
   let data = String(body?.image || "");
   let mime = String(body?.mime || "");
   const m = data.match(/^data:([\w/+.-]+);base64,(.*)$/s);
   if (m) { mime = m[1]; data = m[2]; }
   if (!data) throw Object.assign(new Error("Envie uma imagem."), { status: 400 });
-  if (data.length > MAX_IMAGE_BYTES * 1.4) throw Object.assign(new Error("Imagem muito grande. Tire um print menor ou recorte só a cotação."), { status: 413 });
+  const tooBig = Object.assign(new Error("Arquivo muito grande. Tire um print menor, recorte só a cotação ou use um PDF mais leve."), { status: 413 });
+  if (data.length > MAX_IMAGE_BYTES * 1.4) throw tooBig;
   const buf = Buffer.from(data, "base64");
-  if (buf.length > MAX_IMAGE_BYTES) throw Object.assign(new Error("Imagem muito grande. Tire um print menor ou recorte só a cotação."), { status: 413 });
+  if (buf.length > MAX_IMAGE_BYTES) throw tooBig;
+  if (allowPdf && buf.slice(0, 5).toString() === "%PDF-") return { buf, data: buf.toString("base64"), mime: "application/pdf" };
   const kind = store.sniffImage(buf);
-  if (!kind) throw Object.assign(new Error("Formato não aceito. Use PNG, JPEG ou WEBP."), { status: 415 });
+  if (!kind) throw Object.assign(new Error(allowPdf ? "Formato não aceito. Use PNG, JPEG, WEBP ou PDF." : "Formato não aceito. Use PNG, JPEG ou WEBP."), { status: 415 });
   return { buf, data: buf.toString("base64"), mime: kind.mime };
 }
 
@@ -196,7 +198,7 @@ function describeIssues(zodError) {
 /* ---------- API do atendente ---------- */
 app.post("/api/extract", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000, max: 30 }), async (req, res, next) => {
   try {
-    const { data, mime } = decodeImage(req.body);
+    const { data, mime } = decodeImage(req.body, { allowPdf: true });
     const extraction = await extractFromImage({ data, mime });
     res.json({ option: toOption(extraction, req.body?.label || "Opção 1") });
   } catch (err) { next(err); }
