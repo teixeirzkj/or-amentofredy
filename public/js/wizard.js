@@ -66,6 +66,13 @@ const progress = document.getElementById("progress");
 const title = document.getElementById("modalTitle");
 
 initTheme("#themeToggle");
+// Modo embutido (iframe dentro do Frédy ou ?embed=1): sem fundo, ocupa a tela inteira, tema claro por padrão.
+const URL_PARAMS = new URLSearchParams(location.search);
+const EMBED = window.parent !== window || URL_PARAMS.get("embed") === "1";
+if (EMBED) document.body.classList.add("is-embed");
+const themeParam = URL_PARAMS.get("theme");
+if (themeParam === "light" || themeParam === "dark") document.documentElement.dataset.theme = themeParam;
+else if (EMBED && !document.documentElement.dataset.theme) document.documentElement.dataset.theme = "light";
 document.getElementById("btnClose").innerHTML = icon("x");
 document.getElementById("btnClose").addEventListener("click", () => {
   if (window.parent !== window) window.parent.postMessage({ type: "fredy-orcamento:close" }, "*");
