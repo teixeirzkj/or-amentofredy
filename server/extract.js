@@ -99,11 +99,17 @@ export function aiAvailable() {
 
 /** Converte erros da API da Anthropic em mensagens pro atendente (e nunca repassa 401, que o front trata como "faça login"). */
 function mapAiError(err) {
-  if (err?.status === 401 || err?.status === 403) return Object.assign(new Error("A chave da API da Anthropic no servidor é inválida. Avise quem cuida do sistema."), { status: 503 });
-  if (err?.status === 429 || err?.status === 529) return Object.assign(new Error("A IA está ocupada agora. Tente de novo em alguns segundos."), { status: 429 });
-  if (err?.status === 400 || err?.status === 413) return Object.assign(new Error("A IA não aceitou essa imagem. Tente um print menor ou mais nítido."), { status: 422 });
-  if (err?.status) return Object.assign(new Error("Falha ao falar com a IA. Tente de novo."), { status: 502 });
-  return err;
+  if (!err?.status) return err;
+  // Mensagem original da API (ex.: "credit balance is too low"), sem o JSON em volta.
+  const detail = (err?.error?.error?.message || err?.error?.message || String(err.message || "")).replace(/^d{3}s*/, "").slice(0, 300);
+  console.error("[anthropic]", err.status, detail);
+  const mk = (msg, status) => Object.assign(new Error(msg), { status, detail });
+  if (err.status === 401 || err.status === 403) return mk("A chave da API da Anthropic no servidor é inválida. Avise quem cuida do sistema.", 503);
+  if (err.status === 404) return mk(`A Anthropic não reconheceu o modelo "${MODEL}". Ajuste a variável ANTHROPIC_MODEL.`, 503);
+  if (err.status === 429 || err.status === 529) return mk("A IA está ocupada agora. Tente de novo em alguns segundos.", 429);
+  if (/credit|billing|balance/i.test(detail)) return mk("A conta da Anthropic está sem créditos. Adicione créditos em console.anthropic.com → Billing.", 402);
+  if (err.status === 400 || err.status === 413) return mk(`A IA não aceitou a requisição: ${detail}`, 422);
+  return mk(`Falha ao falar com a IA (${err.status}): ${detail}`, 502);
 }
 async function withAi(fn) {
   try { return await fn(); } catch (err) { throw mapAiError(err); }
