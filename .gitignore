@@ -7,3 +7,6 @@ data/uploads/*
 data/library.json
 
 .vercel
+
+# Prints reais de operadoras usados em testes locais (contêm dados de clientes; nunca versionar)
+data/test-prints/
