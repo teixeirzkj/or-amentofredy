@@ -275,12 +275,10 @@ function renderPrice(o) {
 /* ---------- CTA ---------- */
 function renderCta(o) {
   const label = proposal.options.length > 1 ? `Quero a ${o.label || "opção " + (current + 1)}` : "Quero essa viagem";
-  const inner = el("div", { class: "cta-inner" });
-  if (proposal.chosenOption === current) {
-    inner.append(el("div", { class: "cta-chosen", html: `${icon("check")} Você escolheu esta opção — já vou dar sequência!` }));
-  } else {
-    inner.append(el("button", { type: "button", class: "btn btn-primary", html: `${icon("whatsapp")} ${esc(label)}`, onClick: () => choose(o) }));
-  }
+  // Depois da escolha o botão some; a marcação fica só no ✓ da aba da opção.
+  if (proposal.chosenOption === current) return document.createDocumentFragment();
+  const inner = el("div", { class: "cta-inner" },
+    el("button", { type: "button", class: "btn btn-primary", html: `${icon("whatsapp")} ${esc(label)}`, onClick: () => choose(o) }));
   return el("div", { class: "cta-bar" }, inner);
 }
 
