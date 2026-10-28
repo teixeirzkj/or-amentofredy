@@ -100,7 +100,7 @@ export async function getLibraryHotel(key) {
   const h = lib.hotels.find((x) => x.key === key);
   return h ? summarize(h) : null;
 }
-const isPhotoUrl = (u) => typeof u === "string" && (u.startsWith("/uploads/") || u.startsWith("/img/place/") || /^https:\/\//.test(u));
+const isPhotoUrl = (u) => typeof u === "string" && (u.startsWith("/uploads/") || /^https:\/\//.test(u));
 /** Adiciona fotos à biblioteca do hotel (chamado quando um orçamento é gerado). */
 export async function addToLibrary({ name, city, photos }) {
   if (!name || !photos?.length) return;

@@ -24,8 +24,8 @@ export const Leg = obj({
 });
 
 const PhotoUrl = S(600);
-// Fotos: upload próprio (/uploads/), proxy do Google Places (/img/place/) ou hotlink https (Unsplash/Pexels).
-const isPhotoUrl = (u) => u.startsWith("/uploads/") || u.startsWith("/img/place/") || /^https:\/\//.test(u);
+// Fotos: upload próprio (/uploads/) ou hotlink https (capa do Unsplash/Pexels).
+const isPhotoUrl = (u) => u.startsWith("/uploads/") || /^https:\/\//.test(u);
 
 export const Hotel = obj({
   name: S(120),

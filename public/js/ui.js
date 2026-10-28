@@ -208,10 +208,9 @@ export function initTheme(buttonSel) {
     try { localStorage.setItem("fredy-theme", root.dataset.theme); } catch {}
   });
 }
-/** Versão pequena de uma foto, quando a fonte permite (proxy do Google ou Unsplash). */
+/** Versão pequena de uma foto, quando a fonte permite (Unsplash). */
 export function thumbOf(url) {
   if (typeof url !== "string") return url;
-  if (url.startsWith("/img/place/")) return url.replace(/w=\d+/, "w=480");
   if (url.includes("images.unsplash.com")) return url.replace(/([?&])w=\d+/, "$1w=480");
   return url;
 }

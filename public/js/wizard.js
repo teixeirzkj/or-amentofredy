@@ -455,7 +455,7 @@ function renderFlagSummary() {
 }
 
 /* =========================================================
-   Fotos da internet (Google Places pro hotel, Unsplash/Pexels pro destino)
+   Fotos da internet (busca de imagens do Google pro hotel, Unsplash/Pexels pro destino)
    ========================================================= */
 const imgCache = new Map();
 function cachedApi(key, path) {
@@ -467,8 +467,41 @@ async function findHotelPhotos(h) {
   if (!S.session.images?.hotels || !h.name?.trim()) return null;
   const r = await cachedApi(`h:${h.name}|${h.city}`.toLowerCase(), `/api/images/hotel?name=${encodeURIComponent(h.name)}&city=${encodeURIComponent(h.city || "")}`);
   h._found = r.photos || [];
-  if (r.place?.address && !h.address) h.address = r.place.address;
   return r;
+}
+/** Baixa uma foto achada (pelo proxy assinado do servidor), comprime como um upload normal e devolve a URL nossa. */
+function importFound(p) {
+  if (p.uploaded) return Promise.resolve(p.uploaded);
+  if (p.importing) return p.importing;
+  p.importing = (async () => {
+    const res = await fetch(p.url, { credentials: "same-origin" });
+    if (!res.ok) {
+      let msg = "Não consegui baixar essa foto. Tente outra.";
+      try { msg = (await res.json()).error || msg; } catch { /* sem corpo */ }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const file = new File([blob], "foto", { type: blob.type || "image/jpeg" });
+    const dataUrl = await normalizeImage(file, { maxPx: 1600, maxBytes: 1.2 * 1024 * 1024 });
+    const { url } = await api("/api/uploads", { method: "POST", body: { image: dataUrl } });
+    p.uploaded = url;
+    return url;
+  })().finally(() => { p.importing = null; });
+  return p.importing;
+}
+/** Em segundo plano, importa até `max` fotos da lista pro hotel; a tela se atualiza conforme chegam. */
+async function importMany(h, list, max) {
+  h._importing = (h._importing || 0) + 1;
+  let n = 0;
+  for (const p of list) {
+    if (n >= max || h.photos.length >= 8) break;
+    try {
+      const url = await importFound(p);
+      if (!h.photos.includes(url) && h.photos.length < 8) { h.photos.push(url); n++; rerenderKeep(); }
+    } catch { /* tenta a próxima */ }
+  }
+  h._importing--;
+  rerenderKeep();
 }
 /** Busca fotos de capa do destino. Guarda em o._meta.destPhotos (não é salvo). */
 async function findDestinationPhotos(o) {
@@ -484,12 +517,13 @@ function setHero(o, p) {
   o.destination.heroCreditLink = p?.creditLink || "";
   if (p?.track) api("/api/images/track", { method: "POST", body: { track: p.track } }).catch(() => {});
 }
-/** Depois da extração: preenche fotos do hotel (até 6) e capa do destino, sem travar se alguma busca falhar. */
+const AUTO_HOTEL_PHOTOS = 4;
+/** Depois da extração: busca fotos do hotel (as 4 primeiras entram sozinhas, em segundo plano) e a capa do destino. */
 async function autoImages(option) {
   const jobs = [];
   for (const h of option.hotels) {
     if (!h.name || h.photos.length) continue;
-    jobs.push(findHotelPhotos(h).then((r) => { if (r?.photos?.length) h.photos = r.photos.slice(0, 6).map((p) => p.url); }).catch(() => {}));
+    jobs.push(findHotelPhotos(h).then((r) => { if (r?.photos?.length) importMany(h, r.photos, AUTO_HOTEL_PHOTOS); }).catch(() => {}));
   }
   if (!option.destination.heroImage) {
     jobs.push(findDestinationPhotos(option).then((list) => { if (list?.length) setHero(option, list[0]); }).catch(() => {}));
@@ -501,7 +535,7 @@ function heroBlock(o) {
   const found = o._meta?.destPhotos || [];
   const cur = o.destination.heroImage;
   const grid = found.length ? el("div", { class: "photo-grid hero-grid" }, found.map((p) =>
-    el("div", { class: `photo ${cur === p.url ? "is-selected" : ""}`, title: p.credit ? `Foto: ${p.credit}` : "", onClick: () => { setHero(o, p); rerenderKeep(); } }, el("img", { src: p.thumb, alt: "", loading: "lazy" })))) : null;
+    el("div", { class: `photo ${cur === p.url ? "is-selected" : ""}`, title: [p.alt, p.credit ? `Foto: ${p.credit}` : ""].filter(Boolean).join(" · "), onClick: () => { setHero(o, p); rerenderKeep(); } }, el("img", { src: p.thumb, alt: p.alt || "", loading: "lazy" })))) : null;
   const uploadBtn = el("label", { class: "btn btn-sm photo-upload-btn", html: `${icon("upload")} Subir foto de capa` },
     el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", onChange: async (e) => {
       const f = e.target.files?.[0]; if (!f) return;
@@ -734,10 +768,25 @@ function hotelBlock(h, i) {
 
   const found = h._found || [];
   const foundGrid = found.length ? el("div", {},
-    el("div", { class: "lib-title", html: `${icon("image")} Fotos encontradas na internet (Google)` }),
-    el("div", { class: "lib-hint", text: "Clique numa foto pra usar ou tirar do orçamento." }),
-    el("div", { class: "photo-grid" }, found.map((p) => el("div", { class: `photo ${h.photos.includes(p.url) ? "is-selected" : ""}`, title: p.credit ? `Foto: ${p.credit}` : "", onClick: () => togglePhoto(h, p.url) },
-      el("img", { src: p.thumb, alt: "", loading: "lazy" })))),
+    el("div", { class: "lib-title", html: `${icon("image")} Fotos encontradas na internet` }),
+    el("div", { class: "lib-hint", text: h._importing
+      ? "Baixando as primeiras fotos pro orçamento… Clique em outras pra usar também. A fonte aparece em cada foto: prefira o site do hotel ou sites de reserva."
+      : "Clique numa foto pra usar ou tirar do orçamento. A fonte aparece em cada foto: prefira o site do hotel ou sites de reserva." }),
+    el("div", { class: "photo-grid" }, found.map((p) => el("div", {
+      class: `photo ${p.uploaded && h.photos.includes(p.uploaded) ? "is-selected" : ""} ${p.importing ? "is-busy" : ""}`,
+      title: p.source ? `Fonte: ${p.source}` : "",
+      onClick: async () => {
+        if (p.importing) return;
+        if (p.uploaded) return togglePhoto(h, p.uploaded);
+        if (h.photos.length >= 8) return toast("Máximo de 8 fotos por hotel.", "error");
+        const job = importFound(p);
+        rerenderKeep();
+        try { const url = await job; if (h.photos.length < 8 && !h.photos.includes(url)) h.photos.push(url); }
+        catch (err) { toast(err.message || "Não consegui baixar essa foto. Tente outra.", "error"); }
+        rerenderKeep();
+      } },
+      el("img", { src: p.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
+      p.source ? el("span", { class: "photo-src", text: p.source }) : null))),
   ) : null;
   const searchBtn = S.session.images?.hotels ? el("button", { class: "btn btn-sm btn-soft", type: "button", html: `${icon("image")} Buscar fotos do hotel na internet`, onClick: async (e) => {
     const b = e.currentTarget; b.disabled = true;

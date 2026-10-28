@@ -8,7 +8,7 @@ import * as store from "./store.js";
 import { ProposalInput, sanitizeForPublic } from "./schema.js";
 import { extractFromImage, generateEditorial, aiAvailable } from "./extract.js";
 import { lookupEditorial, MONTHS_PT } from "./editorial.js";
-import { imagesAvailable, searchHotelPhotos, searchDestinationPhotos, fetchPlacePhoto, trackDownload } from "./images.js";
+import { imagesAvailable, searchHotelPhotos, searchDestinationPhotos, fetchRemoteImage, trackDownload } from "./images.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -327,12 +327,12 @@ app.post("/api/images/track", requireAuth, async (req, res) => {
   trackDownload(String(req.body?.track || "")).catch(() => {});
   res.json({ ok: true });
 });
-// Proxy das fotos do Google Places (a chave fica no servidor; navegador e CDN guardam por um tempo).
-app.get("/img/place/:name", rateLimit({ windowMs: 60 * 1000, max: 300 }), async (req, res, next) => {
+// Baixa uma foto de hotel achada na busca (URL assinada pelo servidor) pro navegador guardar como upload.
+app.get("/img/fetch", requireAuth, rateLimit({ windowMs: 60 * 1000, max: 60 }), async (req, res, next) => {
   try {
-    const { buf, mime } = await fetchPlacePhoto(req.params.name, req.query.w);
+    const { buf, mime } = await fetchRemoteImage(String(req.query.u || ""), String(req.query.s || ""));
     res.setHeader("Content-Type", mime);
-    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400");
+    res.setHeader("Cache-Control", "private, max-age=3600");
     res.send(buf);
   } catch (err) { next(err); }
 });

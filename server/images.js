@@ -1,12 +1,18 @@
-// Busca de fotos na internet:
-// - Hotel: Google Places API (New) — fotos do hotel específico. As imagens são servidas por /img/place/... (proxy, sem guardar cópia).
+// Busca de fotos na internet (tudo em planos gratuitos, sem cartão):
+// - Hotel: Google Programmable Search (Custom Search JSON API) com busca de imagens — 100 buscas/dia grátis.
+//   As fotos achadas são de sites de terceiros; o navegador baixa a escolhida via /img/fetch (proxy assinado)
+//   e guarda uma cópia nossa (como um upload normal), pra proposta não quebrar se o site original mudar.
 // - Destino: Unsplash (ou Pexels) — foto de capa, hotlink direto como as APIs pedem, com crédito do fotógrafo.
+import crypto from "node:crypto";
+import { sniffImage } from "./store.js";
 
-const GOOGLE_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
+const SEARCH_KEY = process.env.GOOGLE_SEARCH_API_KEY || "";
+const SEARCH_CX = process.env.GOOGLE_SEARCH_ENGINE_ID || "";
+const SEARCH_ENDPOINT = process.env.GOOGLE_SEARCH_ENDPOINT || "https://www.googleapis.com/customsearch/v1";
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY || "";
 const PEXELS_KEY = process.env.PEXELS_API_KEY || "";
 
-export const imagesAvailable = () => ({ hotels: Boolean(GOOGLE_KEY), destinations: Boolean(UNSPLASH_KEY || PEXELS_KEY) });
+export const imagesAvailable = () => ({ hotels: Boolean(SEARCH_KEY && SEARCH_CX), destinations: Boolean(UNSPLASH_KEY || PEXELS_KEY) });
 
 // Cache em memória (vale por instância; na Vercel dura enquanto a função estiver quente).
 const cache = new Map();
@@ -21,9 +27,9 @@ function remember(key, fn) {
   return value;
 }
 
-const PHOTO_NAME = /^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_-]+$/;
-export const isPlacePhotoName = (n) => PHOTO_NAME.test(n || "");
-export const placePhotoUrl = (name, w = 1600) => `/img/place/${encodeURIComponent(name)}?w=${w}`;
+function httpError(message, status) {
+  return Object.assign(new Error(message), { status });
+}
 
 async function fetchJson(url, init) {
   const res = await fetch(url, init);
@@ -36,63 +42,138 @@ async function fetchJson(url, init) {
   return body;
 }
 
-/* ---------- Hotel (Google Places) ---------- */
-/** @returns {Promise<{place:{id,name,address,lat,lng}|null, photos:Array<{url,thumb,name,credit}>}>} */
+/* ---------- Assinatura das URLs externas (só o que a busca devolveu pode passar pelo proxy) ---------- */
+// Segredo estável entre instâncias: SESSION_SECRET se existir, senão derivado da própria chave de busca.
+const SIGN_SECRET = crypto.createHash("sha256").update("fredy-img:" + (process.env.SESSION_SECRET || SEARCH_KEY || "sem-chave")).digest();
+const signUrl = (u) => crypto.createHmac("sha256", SIGN_SECRET).update(u).digest("base64url").slice(0, 32);
+export function proxiedUrl(u) {
+  return `/img/fetch?u=${encodeURIComponent(u)}&s=${signUrl(u)}`;
+}
+function verifySignature(u, s) {
+  const expected = Buffer.from(signUrl(u));
+  const given = Buffer.from(String(s || ""));
+  return expected.length === given.length && crypto.timingSafeEqual(expected, given);
+}
+
+/* ---------- Hotel (Google Programmable Search, busca de imagens) ---------- */
+const BAD_MIME = /gif|svg|bmp|tiff|x-icon/i;
+/** @returns {Promise<{photos:Array<{url,thumb,source,page,w,h}>}>} `url` já é o caminho do proxy. */
 export function searchHotelPhotos({ name, city }) {
-  if (!GOOGLE_KEY) throw Object.assign(new Error("Busca de fotos de hotel desligada: defina GOOGLE_PLACES_API_KEY."), { status: 503 });
-  const query = [name, city].filter(Boolean).join(" ").trim();
-  if (!query) throw Object.assign(new Error("Informe o nome do hotel."), { status: 400 });
-  return remember(`hotel:${query.toLowerCase()}`, async () => {
-    const data = await fetchJson("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": GOOGLE_KEY,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.photos,places.types",
-      },
-      body: JSON.stringify({ textQuery: query, languageCode: "pt-BR", maxResultCount: 3 }),
+  if (!SEARCH_KEY || !SEARCH_CX) throw httpError("Busca de fotos de hotel desligada: defina GOOGLE_SEARCH_API_KEY e GOOGLE_SEARCH_ENGINE_ID.", 503);
+  const hotel = String(name || "").trim();
+  if (!hotel) throw httpError("Informe o nome do hotel.", 400);
+  const kind = /hotel|pousada|resort|inn|hostel|flat/i.test(hotel) ? "" : "hotel";
+  const q = [`"${hotel}"`, String(city || "").trim(), kind].filter(Boolean).join(" ");
+  return remember(`hotel:${q.toLowerCase()}`, async () => {
+    const u = new URL(SEARCH_ENDPOINT);
+    u.search = new URLSearchParams({ key: SEARCH_KEY, cx: SEARCH_CX, q, searchType: "image", num: "10", imgType: "photo", safe: "active", hl: "pt-BR", gl: "br" }).toString();
+    let data;
+    try {
+      data = await fetchJson(u);
+    } catch (err) {
+      if (err.upstream === 403 || err.upstream === 429) throw httpError("A cota gratuita de buscas do Google (100 por dia) acabou por hoje. Suba as fotos manualmente ou tente amanhã.", 429);
+      if (err.upstream === 400) throw httpError(`O Google recusou a busca: ${err.message}. Confira GOOGLE_SEARCH_API_KEY e GOOGLE_SEARCH_ENGINE_ID.`, 502);
+      throw err;
+    }
+    const items = (data?.items || []).filter((it) => /^https?:\/\//i.test(it.link || "") && !BAD_MIME.test(it.mime || "") && it.image?.thumbnailLink);
+    const good = items.filter((it) => {
+      const w = Number(it.image?.width) || 0;
+      const h = Number(it.image?.height) || 0;
+      return w >= 500 && h >= 350 && w / h <= 2.6 && h / w <= 1.6;
     });
-    const places = data?.places || [];
-    // Prefere um resultado que seja hospedagem, se houver.
-    const lodging = places.find((p) => (p.types || []).some((t) => /lodging|hotel|resort|inn|guest_house|hostel/.test(t)));
-    const p = lodging || places[0];
-    if (!p) return { place: null, photos: [] };
-    const photos = (p.photos || []).filter((ph) => isPlacePhotoName(ph.name)).slice(0, 10).map((ph) => ({
-      name: ph.name,
-      url: placePhotoUrl(ph.name, 1600),
-      thumb: placePhotoUrl(ph.name, 480),
-      credit: ph.authorAttributions?.[0]?.displayName || "",
-    }));
+    const list = (good.length >= 3 ? good : items).slice(0, 10);
     return {
-      place: { id: p.id, name: p.displayName?.text || "", address: p.formattedAddress || "", lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null },
-      photos,
+      photos: list.map((it) => ({
+        url: proxiedUrl(it.link),
+        thumb: it.image.thumbnailLink,
+        source: it.displayLink || "",
+        page: it.image.contextLink || "",
+        w: Number(it.image?.width) || 0,
+        h: Number(it.image?.height) || 0,
+      })),
     };
   });
 }
 
-/** Baixa a foto do Google pra servir via proxy (sem persistir). */
-export async function fetchPlacePhoto(name, width = 1600) {
-  if (!GOOGLE_KEY) throw Object.assign(new Error("GOOGLE_PLACES_API_KEY não configurada."), { status: 503 });
-  if (!isPlacePhotoName(name)) throw Object.assign(new Error("Foto inválida."), { status: 400 });
-  const w = Math.min(1600, Math.max(200, Math.round(Number(width) || 1600)));
-  const res = await fetch(`https://places.googleapis.com/v1/${name}/media?maxWidthPx=${w}&key=${encodeURIComponent(GOOGLE_KEY)}`, { redirect: "follow" });
-  if (!res.ok) throw Object.assign(new Error("Foto não encontrada no Google."), { status: res.status === 404 ? 404 : 502 });
-  const mime = res.headers.get("content-type") || "image/jpeg";
-  return { buf: Buffer.from(await res.arrayBuffer()), mime };
+/* ---------- Proxy de download (uma foto escolhida pelo atendente) ---------- */
+const MAX_REMOTE_BYTES = 12 * 1024 * 1024;
+const PRIVATE_HOST = /^(localhost|.*\.local|.*\.internal|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/i;
+const IPV4 = /^\d+\.\d+\.\d+\.\d+$/;
+function assertPublicUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { throw httpError("Endereço de foto inválido.", 400); }
+  const host = u.hostname;
+  if (!/^https?:$/.test(u.protocol) || PRIVATE_HOST.test(host) || IPV4.test(host) || host.includes(":") || host.startsWith("[")) {
+    throw httpError("Endereço de foto não permitido.", 400);
+  }
+  return u;
+}
+/** Baixa uma foto externa que a busca devolveu (URL assinada). Não guarda nada: quem guarda é o upload normal. */
+export async function fetchRemoteImage(rawUrl, signature) {
+  if (!verifySignature(String(rawUrl || ""), signature)) throw httpError("Foto não autorizada.", 403);
+  let url = assertPublicUrl(rawUrl);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    let res;
+    for (let hop = 0; hop < 4; hop++) {
+      res = await fetch(url, {
+        redirect: "manual",
+        signal: ctrl.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+          Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+          "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        },
+      });
+      const location = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && location) {
+        url = assertPublicUrl(new URL(location, url).href);
+        continue;
+      }
+      break;
+    }
+    if (!res.ok) throw httpError(`O site da foto não respondeu (HTTP ${res.status}). Tente outra foto.`, 502);
+    const len = Number(res.headers.get("content-length") || 0);
+    if (len > MAX_REMOTE_BYTES) throw httpError("Foto grande demais (mais de 12 MB).", 413);
+    const chunks = [];
+    let total = 0;
+    for await (const chunk of res.body) {
+      total += chunk.length;
+      if (total > MAX_REMOTE_BYTES) throw httpError("Foto grande demais (mais de 12 MB).", 413);
+      chunks.push(chunk);
+    }
+    const buf = Buffer.concat(chunks);
+    const kind = sniffImage(buf);
+    if (!kind) throw httpError("O endereço não devolveu uma imagem (PNG, JPEG ou WEBP). Tente outra foto.", 415);
+    return { buf, mime: kind.mime };
+  } catch (err) {
+    if (err.name === "AbortError") throw httpError("O site da foto demorou demais. Tente outra foto.", 504);
+    if (err.status) throw err;
+    throw httpError("Não consegui baixar essa foto. Tente outra.", 502);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /* ---------- Destino (Unsplash / Pexels) ---------- */
 /** @returns {Promise<Array<{url,thumb,credit,creditLink,source,track}>>} */
 export function searchDestinationPhotos({ city, region }) {
-  if (!UNSPLASH_KEY && !PEXELS_KEY) throw Object.assign(new Error("Busca de fotos de destino desligada: defina UNSPLASH_ACCESS_KEY ou PEXELS_API_KEY."), { status: 503 });
-  const q = [city, region].filter(Boolean).join(" ").trim();
-  if (!q) throw Object.assign(new Error("Informe o destino."), { status: 400 });
-  return remember(`dest:${q.toLowerCase()}`, async () => {
-    for (const query of [`${q} praia`, q, `${q} turismo`]) {
+  if (!UNSPLASH_KEY && !PEXELS_KEY) throw httpError("Busca de fotos de destino desligada: defina UNSPLASH_ACCESS_KEY ou PEXELS_API_KEY.", 503);
+  const c = String(city || "").trim();
+  const r = String(region || "").trim();
+  if (!c) throw httpError("Informe o destino.", 400);
+  return remember(`dest:${c}|${r}`.toLowerCase(), async () => {
+    // Cidade + estado/país primeiro (evita "Bonito" virar peixe ou "Natal" virar festa); depois só a cidade, pra ter mais opções.
+    const queries = [...new Set([r ? `${c} ${r}` : "", c].filter(Boolean))];
+    const seen = new Set();
+    const out = [];
+    for (const query of queries) {
       const list = UNSPLASH_KEY ? await unsplash(query) : await pexels(query);
-      if (list.length) return list;
+      for (const p of list) if (p.url && !seen.has(p.url)) { seen.add(p.url); out.push(p); }
+      if (out.length >= 6) break;
     }
-    return [];
+    return out.slice(0, 10);
   });
 }
 
@@ -103,6 +184,7 @@ async function unsplash(query) {
   return (data?.results || []).map((r) => ({
     url: `${r.urls.raw}&w=1800&q=80&auto=format&fit=max`,
     thumb: r.urls.small,
+    alt: String(r.description || r.alt_description || "").slice(0, 160),
     credit: r.user?.name || "",
     creditLink: r.user?.links?.html ? `${r.user.links.html}?utm_source=fredy&utm_medium=referral` : "",
     source: "Unsplash",
@@ -117,6 +199,7 @@ async function pexels(query) {
   return (data?.photos || []).map((p) => ({
     url: p.src?.large2x || p.src?.large,
     thumb: p.src?.medium,
+    alt: String(p.alt || "").slice(0, 160),
     credit: p.photographer || "",
     creditLink: p.photographer_url || "",
     source: "Pexels",

@@ -63,15 +63,15 @@ O repositório já está preparado (`vercel.json` + `api/index.js`). Na Vercel n
    - `SESSION_SECRET` – texto longo e aleatório.
    - `FRAME_ANCESTORS` – `self https://app.seudominio.com.br` quando for embutir no Frédy.
    - `PUBLIC_URL` – opcional; sem ela o link usa o domínio da própria requisição.
-   - `GOOGLE_PLACES_API_KEY` – fotos do hotel (ver abaixo).
+   - `GOOGLE_SEARCH_API_KEY` e `GOOGLE_SEARCH_ENGINE_ID` – fotos do hotel (ver abaixo).
    - `UNSPLASH_ACCESS_KEY` ou `PEXELS_API_KEY` – foto de capa do destino.
 4. Faça o deploy. O gerador fica em `https://SEU-PROJETO.vercel.app/`.
 
 ## Fotos automáticas
 
-Depois da leitura do print, o gerador busca sozinho até 6 fotos do hotel e uma foto de capa do destino. O atendente pode trocar, tirar ou subir as suas.
+Depois da leitura do print, o gerador busca fotos do hotel na internet (as 4 primeiras entram sozinhas, em segundo plano) e uma foto de capa do destino. O atendente pode trocar, tirar ou subir as suas. Tudo em planos gratuitos, sem cartão.
 
-- **Hotel → Google Places API (New).** No [Google Cloud Console](https://console.cloud.google.com) crie um projeto, ative *Places API (New)*, crie uma chave em *APIs e serviços → Credenciais* e restrinja a chave a essa API. A chave fica só no servidor: as fotos passam pelo proxy `/img/place/...` (nada é copiado; o navegador e o CDN guardam por um dia). O Google dá uma franquia mensal gratuita que cobre o uso de uma agência; acima disso cobra por mil buscas.
+- **Hotel → Google Programmable Search (busca de imagens).** Dois passos: (1) em [programmablesearchengine.google.com](https://programmablesearchengine.google.com) clique em *Adicionar*, marque *Pesquisar toda a web*, crie; nas configurações do mecanismo ligue *Pesquisa de imagens* e copie o *ID do mecanismo de pesquisa* → `GOOGLE_SEARCH_ENGINE_ID`. (2) no [Google Cloud Console](https://console.cloud.google.com) crie um projeto, em *APIs e serviços → Biblioteca* ative *Custom Search API*, em *Credenciais* crie uma *Chave de API* (restrinja à Custom Search API) → `GOOGLE_SEARCH_API_KEY`. Não precisa ativar faturamento: são 100 buscas por dia grátis (uma busca por hotel; o resultado fica em cache por uma hora). As fotos são de sites de terceiros (site do hotel, Booking etc.): a escolhida é baixada pelo servidor (`/img/fetch`, só URLs assinadas pela própria busca) e guardada como um upload normal, então a proposta não depende do site de origem. A fonte aparece em cada miniatura.
 - **Destino → Unsplash** ([unsplash.com/developers](https://unsplash.com/developers), *New Application → Access Key*; 50 buscas/hora no modo demo, mais do que suficiente) **ou Pexels** ([pexels.com/api](https://www.pexels.com/api/)). A foto é usada por link direto, com crédito do fotógrafo no canto da capa, como as duas plataformas pedem.
 
 Sem nenhuma chave o app funciona igual, só sem as fotos automáticas.

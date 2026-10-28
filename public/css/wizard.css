@@ -133,6 +133,9 @@
 .photo:hover .pbtn { opacity: 1; }
 .photo .pbtn.flag { background: var(--danger); }
 .photo .pbtn .ico { width: 12px; height: 12px; }
+.photo .photo-src { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 6px; font-size: 10px; line-height: 1.2; color: #fff; background: linear-gradient(transparent, rgba(15, 34, 57, .8)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.photo.is-busy { opacity: .55; cursor: progress; }
+.photo.is-busy::before { content: ""; position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .5); border-top-color: var(--blue); animation: spin .8s linear infinite; }
 .photo-drop { border: 1.5px dashed var(--border-2); border-radius: 12px; padding: 16px; text-align: center; font-size: 13px; color: var(--muted); cursor: pointer; position: relative; margin-top: 10px; background: var(--surface); }
 .photo-drop:hover, .photo-drop.is-over, .photo-drop.is-active { border-color: var(--blue); color: var(--accent-text); }
 .photo-drop input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
