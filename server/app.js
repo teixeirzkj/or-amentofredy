@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import * as store from "./store.js";
 import { ProposalInput, sanitizeForPublic } from "./schema.js";
-import { extractFromImage, generateEditorial, aiAvailable } from "./extract.js";
+import { extractFromImage, generateEditorial, aiAvailable, MODEL } from "./extract.js";
 import { lookupEditorial, MONTHS_PT } from "./editorial.js";
 import { imagesAvailable, searchHotelPhotos, searchDestinationPhotos, fetchRemoteImage, trackDownload } from "./images.js";
 
@@ -102,7 +102,7 @@ function requireAuth(req, res, next) {
 }
 
 app.get("/api/session", (req, res) => {
-  res.json({ authRequired: Boolean(ATTENDANT_TOKEN), authed: isAuthed(req), aiAvailable: aiAvailable(), images: imagesAvailable(), publicUrl: publicUrl(req), storage: store.BACKEND_NAME, storageEphemeral: store.STORAGE_EPHEMERAL });
+  res.json({ authRequired: Boolean(ATTENDANT_TOKEN), authed: isAuthed(req), aiAvailable: aiAvailable(), model: MODEL, images: imagesAvailable(), publicUrl: publicUrl(req), storage: store.BACKEND_NAME, storageEphemeral: store.STORAGE_EPHEMERAL });
 });
 
 app.post("/api/session", rateLimit({ windowMs: 10 * 60 * 1000, max: 20 }), (req, res) => {

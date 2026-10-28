@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
+export const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
 
 // A API de saída estruturada limita campos com união de tipos (nullable) a 16 por schema.
 // Por isso nenhum campo é nullable: texto ausente = "", número ausente = 0. normalize() converte de volta pra null.
