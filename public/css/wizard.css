@@ -1,5 +1,15 @@
 /* Gerador de orçamento (pop-up). */
 .wizard-page { min-height: 100vh; overflow: hidden; }
+
+/* Foto de capa do destino (passo 2) */
+.hero-preview { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 6; background: var(--surface-2); margin-bottom: 8px; }
+.hero-preview img { width: 100%; height: 100%; object-fit: cover; }
+.hero-preview .pbtn { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgba(15, 34, 57, .75); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.hero-preview .pbtn .ico { width: 13px; height: 13px; }
+.hero-preview .credit { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: rgba(255, 255, 255, .85); background: rgba(15, 34, 57, .5); padding: 2px 8px; border-radius: 999px; }
+.photo-grid.hero-grid .photo { aspect-ratio: 16 / 10; }
+.photo-upload-btn { position: relative; overflow: hidden; }
+.photo-upload-btn input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .backdrop { position: fixed; inset: 0; background:
   radial-gradient(900px 500px at 10% 0%, color-mix(in srgb, var(--blue) 22%, transparent), transparent 60%),
   radial-gradient(700px 500px at 100% 100%, color-mix(in srgb, var(--navy) 35%, transparent), transparent 60%),

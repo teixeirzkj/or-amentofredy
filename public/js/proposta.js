@@ -1,5 +1,5 @@
 // Página pública da proposta: renderiza o orçamento que o atendente gerou.
-import { el, esc, icon, api, toast, initTheme, fmtShort, fmtLong, parseBR, nightsBetween, firstName, plural } from "./ui.js";
+import { el, esc, icon, api, toast, initTheme, fmtShort, fmtLong, parseBR, nightsBetween, firstName, plural, thumbOf } from "./ui.js";
 import { highlightBlock, fmtBRL } from "./money.js";
 
 const app = document.getElementById("app");
@@ -56,6 +56,7 @@ function render() {
 
 /* ---------- Hero ---------- */
 function heroImage(o) {
+  if (o.destination?.heroImage) return o.destination.heroImage;
   for (const h of o.hotels || []) if (h.photos?.[0]) return h.photos[0];
   return null;
 }
@@ -88,6 +89,9 @@ function renderHero(o) {
       o.destination?.tagline ? el("p", { class: "hero-tagline", text: o.destination.tagline }) : null,
       el("div", { class: "hero-chips" }, chips),
     ),
+    o.destination?.heroImage && o.destination?.heroCredit
+      ? el(o.destination.heroCreditLink ? "a" : "span", { class: "hero-credit", href: o.destination.heroCreditLink || null, target: "_blank", rel: "noopener", text: `Foto: ${o.destination.heroCredit}` })
+      : null,
   );
 }
 function chip(ic, text) { return el("span", { class: "chip", html: icon(ic) + esc(text) }); }
@@ -221,7 +225,7 @@ function renderHotel(h, title) {
   const gallery = photos.length ? el("div", { class: "gallery" },
     el("div", { class: "gallery-main", onClick: () => openLightbox(photos, 0) }, el("img", { src: photos[0], alt: h.name, loading: "eager" })),
     photos.length > 1 ? el("div", { class: "gallery-thumbs" }, photos.slice(1, 6).map((p, i) => el("div", { class: "gallery-thumb", onClick: () => openLightbox(photos, i + 1) },
-      el("img", { src: p, alt: "", loading: "lazy" }),
+      el("img", { src: thumbOf(p), alt: "", loading: "lazy" }),
       i === 4 && photos.length > 6 ? el("div", { class: "more", text: `+${photos.length - 6}` }) : null,
     ))) : null,
   ) : null;
@@ -240,7 +244,7 @@ function renderHotel(h, title) {
 }
 
 function renderMap(h, o) {
-  const q = [h.name, h.city || o.destination?.city].filter(Boolean).join(", ");
+  const q = h.address ? `${h.name}, ${h.address}` : [h.name, h.city || o.destination?.city].filter(Boolean).join(", ");
   const embed = `https://www.google.com/maps?q=${encodeURIComponent(q)}&z=14&output=embed&hl=pt-BR`;
   const link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
   return card("Localização & arredores", "pin",

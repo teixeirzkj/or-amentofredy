@@ -8,6 +8,7 @@ import * as store from "./store.js";
 import { ProposalInput, sanitizeForPublic } from "./schema.js";
 import { extractFromImage, generateEditorial, aiAvailable } from "./extract.js";
 import { lookupEditorial, MONTHS_PT } from "./editorial.js";
+import { imagesAvailable, searchHotelPhotos, searchDestinationPhotos, fetchPlacePhoto, trackDownload } from "./images.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -101,7 +102,7 @@ function requireAuth(req, res, next) {
 }
 
 app.get("/api/session", (req, res) => {
-  res.json({ authRequired: Boolean(ATTENDANT_TOKEN), authed: isAuthed(req), aiAvailable: aiAvailable(), publicUrl: publicUrl(req), storage: store.BACKEND_NAME, storageEphemeral: store.STORAGE_EPHEMERAL });
+  res.json({ authRequired: Boolean(ATTENDANT_TOKEN), authed: isAuthed(req), aiAvailable: aiAvailable(), images: imagesAvailable(), publicUrl: publicUrl(req), storage: store.BACKEND_NAME, storageEphemeral: store.STORAGE_EPHEMERAL });
 });
 
 app.post("/api/session", rateLimit({ windowMs: 10 * 60 * 1000, max: 20 }), (req, res) => {
@@ -315,6 +316,27 @@ app.post("/api/public/proposals/:id/choose", rateLimit({ windowMs: 60 * 1000, ma
 });
 
 /* ---------- Páginas e arquivos ---------- */
+/* ---------- Fotos da internet ---------- */
+app.get("/api/images/hotel", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000, max: 120 }), async (req, res, next) => {
+  try { res.json(await searchHotelPhotos({ name: String(req.query.name || "").slice(0, 120), city: String(req.query.city || "").slice(0, 80) })); } catch (err) { next(err); }
+});
+app.get("/api/images/destination", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000, max: 120 }), async (req, res, next) => {
+  try { res.json({ photos: await searchDestinationPhotos({ city: String(req.query.city || "").slice(0, 80), region: String(req.query.region || "").slice(0, 80) }) }); } catch (err) { next(err); }
+});
+app.post("/api/images/track", requireAuth, async (req, res) => {
+  trackDownload(String(req.body?.track || "")).catch(() => {});
+  res.json({ ok: true });
+});
+// Proxy das fotos do Google Places (a chave fica no servidor; navegador e CDN guardam por um tempo).
+app.get("/img/place/:name", rateLimit({ windowMs: 60 * 1000, max: 300 }), async (req, res, next) => {
+  try {
+    const { buf, mime } = await fetchPlacePhoto(req.params.name, req.query.w);
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400");
+    res.send(buf);
+  } catch (err) { next(err); }
+});
+
 app.get("/uploads/:id", async (req, res, next) => {
   try {
     const img = await store.getUpload(req.params.id);

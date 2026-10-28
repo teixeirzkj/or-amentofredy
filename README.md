@@ -63,7 +63,18 @@ O repositório já está preparado (`vercel.json` + `api/index.js`). Na Vercel n
    - `SESSION_SECRET` – texto longo e aleatório.
    - `FRAME_ANCESTORS` – `self https://app.seudominio.com.br` quando for embutir no Frédy.
    - `PUBLIC_URL` – opcional; sem ela o link usa o domínio da própria requisição.
+   - `GOOGLE_PLACES_API_KEY` – fotos do hotel (ver abaixo).
+   - `UNSPLASH_ACCESS_KEY` ou `PEXELS_API_KEY` – foto de capa do destino.
 4. Faça o deploy. O gerador fica em `https://SEU-PROJETO.vercel.app/`.
+
+## Fotos automáticas
+
+Depois da leitura do print, o gerador busca sozinho até 6 fotos do hotel e uma foto de capa do destino. O atendente pode trocar, tirar ou subir as suas.
+
+- **Hotel → Google Places API (New).** No [Google Cloud Console](https://console.cloud.google.com) crie um projeto, ative *Places API (New)*, crie uma chave em *APIs e serviços → Credenciais* e restrinja a chave a essa API. A chave fica só no servidor: as fotos passam pelo proxy `/img/place/...` (nada é copiado; o navegador e o CDN guardam por um dia). O Google dá uma franquia mensal gratuita que cobre o uso de uma agência; acima disso cobra por mil buscas.
+- **Destino → Unsplash** ([unsplash.com/developers](https://unsplash.com/developers), *New Application → Access Key*; 50 buscas/hora no modo demo, mais do que suficiente) **ou Pexels** ([pexels.com/api](https://www.pexels.com/api/)). A foto é usada por link direto, com crédito do fotógrafo no canto da capa, como as duas plataformas pedem.
+
+Sem nenhuma chave o app funciona igual, só sem as fotos automáticas.
 
 Limites que valem na Vercel: cada requisição aceita até 4,5 MB, por isso o navegador comprime o print para até 3 MB e as fotos para 1,2 MB antes de enviar; a função tem 120 s de teto (`vercel.json`), suficiente pra leitura do print.
 

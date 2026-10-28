@@ -1,5 +1,5 @@
 // Gerador de orçamento em 4 passos: print → revisão → valor → revisão final → link.
-import { el, esc, icon, api, toast, initTheme, debounce, copyText, normalizeImage, fileToDataURL, nightsBetween, toBR, parseBR, brToISO, isoToBR, monthName, firstName, plural } from "./ui.js";
+import { el, esc, icon, api, toast, initTheme, debounce, copyText, normalizeImage, fileToDataURL, nightsBetween, toBR, parseBR, brToISO, isoToBR, monthName, firstName, plural, thumbOf } from "./ui.js";
 import { fmtBRL, parseMoney, computePricing, highlightBlock, paymentLines, highlightSummary, whatsappText, peopleCount } from "./money.js";
 
 /* =========================================================
@@ -356,6 +356,7 @@ async function runExtraction(dataUrl, label = "Opção 1", { asNewOption = false
     if (!S.proposal.clientName && option._meta?.clientName) S.proposal.clientName = option._meta.clientName;
     S.pending = null; S.extracting = false;
     await hydrateLibrary(option);
+    await autoImages(option);
     go(2);
     toast(asNewOption ? `${label} adicionada a partir do print.` : "Dados extraídos! Confira tudo antes de seguir.", "success");
   } catch (err) {
@@ -453,6 +454,80 @@ function renderFlagSummary() {
   )));
 }
 
+/* =========================================================
+   Fotos da internet (Google Places pro hotel, Unsplash/Pexels pro destino)
+   ========================================================= */
+const imgCache = new Map();
+function cachedApi(key, path) {
+  if (!imgCache.has(key)) imgCache.set(key, api(path).catch((e) => { imgCache.delete(key); throw e; }));
+  return imgCache.get(key);
+}
+/** Busca fotos do hotel pelo nome + cidade. Guarda as opções em h._found (não é salvo). */
+async function findHotelPhotos(h) {
+  if (!S.session.images?.hotels || !h.name?.trim()) return null;
+  const r = await cachedApi(`h:${h.name}|${h.city}`.toLowerCase(), `/api/images/hotel?name=${encodeURIComponent(h.name)}&city=${encodeURIComponent(h.city || "")}`);
+  h._found = r.photos || [];
+  if (r.place?.address && !h.address) h.address = r.place.address;
+  return r;
+}
+/** Busca fotos de capa do destino. Guarda em o._meta.destPhotos (não é salvo). */
+async function findDestinationPhotos(o) {
+  if (!S.session.images?.destinations || !o.destination.city?.trim()) return null;
+  const r = await cachedApi(`d:${o.destination.city}|${o.destination.region}`.toLowerCase(), `/api/images/destination?city=${encodeURIComponent(o.destination.city)}&region=${encodeURIComponent(o.destination.region || "")}`);
+  o._meta ??= {};
+  o._meta.destPhotos = r.photos || [];
+  return o._meta.destPhotos;
+}
+function setHero(o, p) {
+  o.destination.heroImage = p?.url || "";
+  o.destination.heroCredit = p ? [p.credit, p.source].filter(Boolean).join(" / ") : "";
+  o.destination.heroCreditLink = p?.creditLink || "";
+  if (p?.track) api("/api/images/track", { method: "POST", body: { track: p.track } }).catch(() => {});
+}
+/** Depois da extração: preenche fotos do hotel (até 6) e capa do destino, sem travar se alguma busca falhar. */
+async function autoImages(option) {
+  const jobs = [];
+  for (const h of option.hotels) {
+    if (!h.name || h.photos.length) continue;
+    jobs.push(findHotelPhotos(h).then((r) => { if (r?.photos?.length) h.photos = r.photos.slice(0, 6).map((p) => p.url); }).catch(() => {}));
+  }
+  if (!option.destination.heroImage) {
+    jobs.push(findDestinationPhotos(option).then((list) => { if (list?.length) setHero(option, list[0]); }).catch(() => {}));
+  }
+  await Promise.all(jobs);
+}
+/** Bloco "Foto de capa" do passo 2. */
+function heroBlock(o) {
+  const found = o._meta?.destPhotos || [];
+  const cur = o.destination.heroImage;
+  const grid = found.length ? el("div", { class: "photo-grid hero-grid" }, found.map((p) =>
+    el("div", { class: `photo ${cur === p.url ? "is-selected" : ""}`, title: p.credit ? `Foto: ${p.credit}` : "", onClick: () => { setHero(o, p); rerenderKeep(); } }, el("img", { src: p.thumb, alt: "", loading: "lazy" })))) : null;
+  const uploadBtn = el("label", { class: "btn btn-sm photo-upload-btn", html: `${icon("upload")} Subir foto de capa` },
+    el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", onChange: async (e) => {
+      const f = e.target.files?.[0]; if (!f) return;
+      try {
+        const dataUrl = await normalizeImage(f, { maxPx: 2000, maxBytes: 1.5 * 1024 * 1024 });
+        const { url } = await api("/api/uploads", { method: "POST", body: { image: dataUrl } });
+        setHero(o, { url }); rerenderKeep();
+      } catch (err) { toast(err.message || "Falha ao enviar a foto.", "error"); }
+    } }));
+  const searchBtn = S.session.images?.destinations ? el("button", { class: "btn btn-sm btn-soft", type: "button", html: `${icon("image")} Buscar fotos do destino`, onClick: async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    try { const list = await findDestinationPhotos(o); if (!list?.length) toast("Não achei fotos desse destino.", "error"); rerenderKeep(); }
+    catch (err) { toast(err.message, "error"); b.disabled = false; }
+  } }) : null;
+  return el("div", { style: { marginTop: "12px" } },
+    el("div", { class: "sub-label", text: "Foto de capa" }),
+    cur
+      ? el("div", { class: "hero-preview" }, el("img", { src: cur, alt: "" }),
+          o.destination.heroCredit ? el("span", { class: "credit", text: `Foto: ${o.destination.heroCredit}` }) : null,
+          el("button", { class: "pbtn", type: "button", html: icon("x"), title: "Tirar a capa", onClick: () => { setHero(o, null); rerenderKeep(); } }))
+      : el("p", { class: "hint", style: { marginBottom: "8px" }, text: "Sem foto de capa: a proposta usa a primeira foto do hotel (ou um fundo azul)." }),
+    grid,
+    el("div", { class: "row", style: { marginTop: "8px" } }, searchBtn, uploadBtn),
+  );
+}
+
 /** Liga hotéis extraídos à biblioteca de fotos, se já existirem lá. */
 async function hydrateLibrary(option) {
   for (const h of option.hotels) {
@@ -527,7 +602,7 @@ function renderStep2() {
   /* Destino */
   const cityInput = inp(op("destination.city"), { placeholder: "Ex: Maceió" });
   cityInput.addEventListener("blur", () => { if (o.destination.city && !o.destination.tagline) fetchEditorial(0); });
-  wrap.append(sec("Destino", "pin", [field("Cidade destino", cityInput)]));
+  wrap.append(sec("Destino", "pin", [field("Cidade destino", cityInput), heroBlock(o)]));
 
   /* Editorial */
   const edBtn = el("button", { class: "btn btn-sm btn-soft", type: "button", html: `${icon("refresh")} Outra variação`, onClick: () => fetchEditorial((o._meta?.variant ?? 0) + 1) });
@@ -633,8 +708,8 @@ function hotelBlock(h, i) {
   const lib = h.libraryKey ? libCache.get(h.libraryKey) : null;
   if (h.libraryKey && !lib) loadLibrary(h.libraryKey).then(() => rerenderKeep());
 
-  const selected = el("div", { class: "photo-grid" }, h.photos.map((url, k) => el("div", { class: "photo", title: "A primeira foto vira a capa da proposta · clique no X pra tirar" },
-    el("img", { src: url, alt: "" }),
+  const selected = el("div", { class: "photo-grid" }, h.photos.map((url, k) => el("div", { class: "photo", title: "A primeira foto é a principal da galeria · clique no X pra tirar" },
+    el("img", { src: thumbOf(url), alt: "" }),
     el("button", { class: "pbtn", type: "button", html: icon("x"), title: "Tirar do orçamento", onClick: () => { h.photos.splice(k, 1); rerenderKeep(); } }),
   )));
 
@@ -652,10 +727,23 @@ function hotelBlock(h, i) {
     el("div", { class: "lib-title", html: `${icon("image")} Fotos da biblioteca pra este hotel` }),
     el("div", { class: "lib-hint", text: "Clique numa foto pra usar no orçamento. Viu uma foto errada? Toque na bandeira pra reportar — ela some da biblioteca." }),
     el("div", { class: "photo-grid" }, lib.photos.map((url) => el("div", { class: `photo ${h.photos.includes(url) ? "is-selected" : ""}`, onClick: () => togglePhoto(h, url) },
-      el("img", { src: url, alt: "", loading: "lazy" }),
+      el("img", { src: thumbOf(url), alt: "", loading: "lazy" }),
       el("button", { class: "pbtn flag", type: "button", html: icon("flag"), title: "Reportar foto errada", onClick: (e) => { e.stopPropagation(); reportPhoto(h, url); } }),
     ))),
   ) : null;
+
+  const found = h._found || [];
+  const foundGrid = found.length ? el("div", {},
+    el("div", { class: "lib-title", html: `${icon("image")} Fotos encontradas na internet (Google)` }),
+    el("div", { class: "lib-hint", text: "Clique numa foto pra usar ou tirar do orçamento." }),
+    el("div", { class: "photo-grid" }, found.map((p) => el("div", { class: `photo ${h.photos.includes(p.url) ? "is-selected" : ""}`, title: p.credit ? `Foto: ${p.credit}` : "", onClick: () => togglePhoto(h, p.url) },
+      el("img", { src: p.thumb, alt: "", loading: "lazy" })))),
+  ) : null;
+  const searchBtn = S.session.images?.hotels ? el("button", { class: "btn btn-sm btn-soft", type: "button", html: `${icon("image")} Buscar fotos do hotel na internet`, onClick: async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    try { const r = await findHotelPhotos(h); if (!r?.photos?.length) toast("Não achei fotos desse hotel. Confira o nome e a cidade.", "error"); rerenderKeep(); }
+    catch (err) { toast(err.message, "error"); b.disabled = false; }
+  } }) : null;
 
   return el("div", { class: "hotel-block" },
     el("div", { class: "hotel-block-head" },
@@ -675,6 +763,8 @@ function hotelBlock(h, i) {
     field("Tipo de quarto (opcional)", inp(op(`${base}.room`), { placeholder: "Ex: Apartamento Superior vista mar" })),
     el("div", { class: "sub-label", text: "Fotos do hotel (opcional)" }),
     el("p", { class: "hint", text: "Cole até 8 fotos (Ctrl+V), arraste da área de trabalho ou clique pra selecionar. Dica: copie direto do site do hotel com botão direito → 'Copiar imagem'." }),
+    searchBtn,
+    foundGrid,
     libGrid,
     h.photos.length ? el("div", { class: "lib-title", style: { color: "var(--muted)" }, html: `${icon("check")} No orçamento` }) : null,
     h.photos.length ? selected : null,

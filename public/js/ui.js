@@ -208,5 +208,12 @@ export function initTheme(buttonSel) {
     try { localStorage.setItem("fredy-theme", root.dataset.theme); } catch {}
   });
 }
+/** Versão pequena de uma foto, quando a fonte permite (proxy do Google ou Unsplash). */
+export function thumbOf(url) {
+  if (typeof url !== "string") return url;
+  if (url.startsWith("/img/place/")) return url.replace(/w=\d+/, "w=480");
+  if (url.includes("images.unsplash.com")) return url.replace(/([?&])w=\d+/, "$1w=480");
+  return url;
+}
 export const firstName = (s) => String(s || "").trim().split(/\s+/)[0] || "";
 export const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;

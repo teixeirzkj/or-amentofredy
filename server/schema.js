@@ -24,7 +24,8 @@ export const Leg = obj({
 });
 
 const PhotoUrl = S(600);
-const isPhotoUrl = (u) => u.startsWith("/uploads/") || /^https:\/\//.test(u);
+// Fotos: upload próprio (/uploads/), proxy do Google Places (/img/place/) ou hotlink https (Unsplash/Pexels).
+const isPhotoUrl = (u) => u.startsWith("/uploads/") || u.startsWith("/img/place/") || /^https:\/\//.test(u);
 
 export const Hotel = obj({
   name: S(120),
@@ -34,6 +35,7 @@ export const Hotel = obj({
   nights: intOrNull(365),
   board: S(40),
   room: S(160),
+  address: S(200),
   photos: arr(PhotoUrl, 8).transform((a) => a.filter(isPhotoUrl)),
   libraryKey: S(160),
 });
@@ -47,6 +49,9 @@ export const Option = obj({
     highlights: arr(S(140), 6),
     climate: S(80),
     bestSeason: S(80),
+    heroImage: PhotoUrl.transform((u) => (isPhotoUrl(u) ? u : "")),
+    heroCredit: S(120),
+    heroCreditLink: S(300),
   }),
   flights: obj({
     outbound: Leg,

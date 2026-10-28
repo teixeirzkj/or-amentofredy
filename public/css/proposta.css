@@ -27,6 +27,8 @@ body { background: var(--bg); }
 .hero h1 { font-family: var(--font-display); font-weight: 400; font-size: clamp(56px, 10vw, 96px); line-height: .95; margin: 12px 0 10px; letter-spacing: -.01em; }
 .hero-tagline { font-size: 17px; color: rgba(255, 255, 255, .92); max-width: 560px; }
 .hero-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.hero-credit { position: absolute; right: 14px; bottom: 10px; font-size: 11px; color: rgba(255, 255, 255, .65); text-decoration: none; }
+.hero-credit:hover { color: #fff; }
 .chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 999px; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .22); backdrop-filter: blur(8px); font-size: 13px; font-weight: 600; }
 .chip .ico { width: 15px; height: 15px; }
 
