@@ -7,6 +7,8 @@
 import crypto from "node:crypto";
 import { sniffImage } from "./store.js";
 
+const PLACES_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
+const PLACES_ENDPOINT = process.env.GOOGLE_PLACES_ENDPOINT || "https://places.googleapis.com";
 const SERPAPI_KEY = process.env.SERPAPI_API_KEY || process.env.SERPAPI_KEY || "";
 const SERPAPI_ENDPOINT = process.env.SERPAPI_ENDPOINT || "https://serpapi.com/search.json";
 const SEARCH_KEY = process.env.GOOGLE_SEARCH_API_KEY || "";
@@ -15,7 +17,7 @@ const SEARCH_ENDPOINT = process.env.GOOGLE_SEARCH_ENDPOINT || "https://www.googl
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY || "";
 const PEXELS_KEY = process.env.PEXELS_API_KEY || "";
 
-export const imagesAvailable = () => ({ hotels: Boolean(SERPAPI_KEY || (SEARCH_KEY && SEARCH_CX)), destinations: Boolean(UNSPLASH_KEY || PEXELS_KEY) });
+export const imagesAvailable = () => ({ hotels: Boolean(PLACES_KEY || SERPAPI_KEY || (SEARCH_KEY && SEARCH_CX)), destinations: Boolean(UNSPLASH_KEY || PEXELS_KEY) });
 
 // Cache em memória (vale por instância; na Vercel dura enquanto a função estiver quente).
 const cache = new Map();
@@ -69,14 +71,105 @@ function pickGood(list) {
   });
   return (good.length >= 3 ? good : list).slice(0, 10);
 }
-/** @returns {Promise<{photos:Array<{url,thumb,source,page,w,h}>}>} `url` já é o caminho do proxy. */
+/**
+ * Ordem: Google Places (fotos do Maps, hotel certo + endereço). Se o Places não estiver configurado,
+ * bater o teto diário/cota ou não achar fotos, cai pra busca de imagens (SerpApi, ou Custom Search).
+ * @returns {Promise<{provider, place?, photos:Array<{url,thumb,source,credit?,page,w,h}>}>} `url` é caminho do nosso proxy.
+ */
 export function searchHotelPhotos({ name, city }) {
-  if (!SERPAPI_KEY && !(SEARCH_KEY && SEARCH_CX)) throw httpError("Busca de fotos de hotel desligada: defina SERPAPI_API_KEY.", 503);
+  const hasImageSearch = Boolean(SERPAPI_KEY || (SEARCH_KEY && SEARCH_CX));
+  if (!PLACES_KEY && !hasImageSearch) throw httpError("Busca de fotos de hotel desligada: defina GOOGLE_PLACES_API_KEY (ou SERPAPI_API_KEY).", 503);
   const hotel = String(name || "").trim();
   if (!hotel) throw httpError("Informe o nome do hotel.", 400);
+  const c = String(city || "").trim();
   const kind = /hotel|pousada|resort|inn|hostel|flat/i.test(hotel) ? "" : "hotel";
-  const q = [`"${hotel}"`, String(city || "").trim(), kind].filter(Boolean).join(" ");
-  return remember(`hotel:${q.toLowerCase()}`, () => (SERPAPI_KEY ? serpapiImages(q) : googleCseImages(q)));
+  const q = [`"${hotel}"`, c, kind].filter(Boolean).join(" ");
+  const imageSearch = () => (SERPAPI_KEY ? serpapiImages(q) : googleCseImages(q)).then((r) => ({ provider: SERPAPI_KEY ? "serpapi" : "google-cse", ...r }));
+  return remember(`hotel:${hotel}|${c}`.toLowerCase(), async () => {
+    if (!PLACES_KEY) return imageSearch();
+    let places;
+    try {
+      places = await placesSearch([hotel, c].filter(Boolean).join(" "));
+    } catch (err) {
+      if (!hasImageSearch) throw err;
+      console.warn("[fotos] Places falhou, usando busca de imagens:", err.message);
+      return imageSearch();
+    }
+    if (places.photos.length || !hasImageSearch) return places;
+    const alt = await imageSearch().catch(() => null);
+    return alt?.photos?.length ? { ...alt, place: places.place } : places;
+  });
+}
+
+/* ---------- Google Places (New) ---------- */
+const PHOTO_NAME = /^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_-]+$/;
+const PLACE_PHOTO_WIDTH = 1200;
+const MAX_PLACE_PHOTOS = 6;
+// A mesma URL serve de miniatura e de download: o navegador/CDN reaproveita e o Google cobra a foto uma vez só.
+const placePhotoUrl = (name) => `/img/place?n=${encodeURIComponent(name)}`;
+export const isPlacePhotoName = (n) => PHOTO_NAME.test(String(n || ""));
+
+function placesError(status, body) {
+  const st = String(body?.error?.status || "");
+  const msg = String(body?.error?.message || `HTTP ${status}`);
+  if (status === 429 || st === "RESOURCE_EXHAUSTED") return httpError("O limite diário de fotos do Google acabou por hoje. Suba as fotos manualmente ou tente amanhã.", 429);
+  if (status === 403 || st === "PERMISSION_DENIED") return httpError(`O Google recusou a chave do Places: ${msg.slice(0, 160)}. Confira se a "Places API (New)" está ativada e o faturamento cadastrado.`, 502);
+  if (status === 400) return httpError(`O Google recusou a busca: ${msg.slice(0, 160)}`, 502);
+  return httpError(`Google Places falhou: ${msg.slice(0, 160)}`, 502);
+}
+
+async function placesSearch(textQuery) {
+  const res = await fetch(`${PLACES_ENDPOINT}/v1/places:searchText`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": PLACES_KEY,
+      // Só campos da faixa "Pro" (endereço e fotos); telefone/avaliação mudariam pra faixa mais cara.
+      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.photos,places.types",
+    },
+    body: JSON.stringify({ textQuery, languageCode: "pt-BR", regionCode: "BR", includedType: "lodging", maxResultCount: 3 }),
+  });
+  let body = null;
+  try { body = await res.json(); } catch { /* sem corpo */ }
+  if (!res.ok) throw placesError(res.status, body);
+  const list = body?.places || [];
+  const p = list.find((x) => (x.types || []).some((t) => /lodging|hotel|resort|inn|guest_house|hostel|bed_and_breakfast/.test(t))) || list[0];
+  if (!p) return { provider: "google-places", place: null, photos: [] };
+  const photos = (p.photos || []).filter((ph) => isPlacePhotoName(ph.name)).slice(0, MAX_PLACE_PHOTOS).map((ph) => {
+    const url = placePhotoUrl(ph.name);
+    return {
+      url,
+      thumb: url,
+      source: "Google Maps",
+      credit: ph.authorAttributions?.[0]?.displayName || "",
+      page: ph.authorAttributions?.[0]?.uri || "",
+      w: Number(ph.widthPx) || 0,
+      h: Number(ph.heightPx) || 0,
+    };
+  });
+  return {
+    provider: "google-places",
+    place: { id: p.id, name: p.displayName?.text || "", address: p.formattedAddress || "", lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null },
+    photos,
+  };
+}
+
+/** Baixa uma foto do Places (1 cobrança). Pede a URL final em JSON e baixa do googleusercontent, que não cobra. */
+export async function fetchPlacePhoto(name) {
+  if (!PLACES_KEY) throw httpError("GOOGLE_PLACES_API_KEY não configurada.", 503);
+  if (!isPlacePhotoName(name)) throw httpError("Foto inválida.", 400);
+  const meta = await fetch(`${PLACES_ENDPOINT}/v1/${name}/media?maxWidthPx=${PLACE_PHOTO_WIDTH}&skipHttpRedirect=true&key=${encodeURIComponent(PLACES_KEY)}`);
+  let body = null;
+  try { body = await meta.json(); } catch { /* sem corpo */ }
+  if (!meta.ok) throw placesError(meta.status, body);
+  const uri = String(body?.photoUri || "");
+  if (!/^https:\/\/[a-z0-9.-]+\.(googleusercontent|ggpht|google)\.com\//i.test(uri)) throw httpError("O Google não devolveu a foto.", 502);
+  const img = await fetch(uri);
+  if (!img.ok) throw httpError("Não consegui baixar a foto do Google.", 502);
+  const buf = Buffer.from(await img.arrayBuffer());
+  const kind = sniffImage(buf);
+  if (!kind) throw httpError("O Google devolveu um formato de imagem inesperado.", 502);
+  return { buf, mime: kind.mime };
 }
 
 async function serpapiImages(q) {

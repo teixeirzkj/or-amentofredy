@@ -63,7 +63,7 @@ O repositório já está preparado (`vercel.json` + `api/index.js`). Na Vercel n
    - `SESSION_SECRET` – texto longo e aleatório.
    - `FRAME_ANCESTORS` – `self https://app.seudominio.com.br` quando for embutir no Frédy.
    - `PUBLIC_URL` – opcional; sem ela o link usa o domínio da própria requisição.
-   - `SERPAPI_API_KEY` – fotos do hotel (ver abaixo).
+   - `GOOGLE_PLACES_API_KEY` – fotos do hotel pelo Google Maps; `SERPAPI_API_KEY` – reserva (ver abaixo).
    - `UNSPLASH_ACCESS_KEY` ou `PEXELS_API_KEY` – foto de capa do destino.
 4. Faça o deploy. O gerador fica em `https://SEU-PROJETO.vercel.app/`.
 
@@ -71,7 +71,8 @@ O repositório já está preparado (`vercel.json` + `api/index.js`). Na Vercel n
 
 Depois da leitura do print, o gerador busca fotos do hotel na internet (as 4 primeiras entram sozinhas, em segundo plano) e uma foto de capa do destino. O atendente pode trocar, tirar ou subir as suas. Tudo em planos gratuitos, sem cartão.
 
-- **Hotel → SerpApi (busca no Google Imagens).** Crie a conta em [serpapi.com](https://serpapi.com) (grátis, sem cartão: 250 buscas por mês; buscas repetidas em uma hora não contam) e copie a chave do painel → `SERPAPI_API_KEY`. Uma busca por hotel, com cache de uma hora no app. As fotos são de sites de terceiros (site do hotel, Booking etc.): a escolhida é baixada pelo servidor (`/img/fetch`, só URLs assinadas pela própria busca) e guardada como um upload normal, então a proposta não depende do site de origem. A fonte aparece em cada miniatura. (A Custom Search API do Google ainda funciona pra quem já tinha `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID`, mas fechou pra contas novas em 2026.)
+- **Hotel → Google Places API (New), com teto diário.** Fotos do Google Maps, sempre do hotel certo, e o endereço exato pro mapa. No [Google Cloud Console](https://console.cloud.google.com): crie um projeto, cadastre o faturamento, ative *Places API (New)* e crie uma chave restrita a ela → `GOOGLE_PLACES_API_KEY`. Pra nunca sair do grátis, em *APIs e serviços → Places API (New) → Cotas* limite as requisições por dia (sugestão: 300 de busca e 300 de fotos). Custo: a busca (Text Search Pro) tem 5.000 grátis por mês; cada foto baixada é cobrada uma vez (franquia grátis mensal, depois alguns dólares por mil). O app mostra no máximo 6 fotos por hotel e usa a mesma URL pra miniatura e download, então cada foto é cobrada uma vez só; a escolhida vira um upload nosso. O nome do autor aparece em cada miniatura, como o Google exige.
+- **Hotel, reserva → SerpApi (busca no Google Imagens).** Usada sozinha quando o Places bate o teto do dia, recusa a chave ou não tem fotos do hotel. Crie a conta em [serpapi.com](https://serpapi.com) (grátis, sem cartão: 250 buscas por mês; buscas repetidas em uma hora não contam) e copie a chave do painel → `SERPAPI_API_KEY`. Uma busca por hotel, com cache de uma hora no app. As fotos são de sites de terceiros (site do hotel, Booking etc.): a escolhida é baixada pelo servidor (`/img/fetch`, só URLs assinadas pela própria busca) e guardada como um upload normal, então a proposta não depende do site de origem. A fonte aparece em cada miniatura. (A Custom Search API do Google ainda funciona pra quem já tinha `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID`, mas fechou pra contas novas em 2026.)
 - **Destino → Unsplash** ([unsplash.com/developers](https://unsplash.com/developers), *New Application → Access Key*; 50 buscas/hora no modo demo, mais do que suficiente) **ou Pexels** ([pexels.com/api](https://www.pexels.com/api/)). A foto é usada por link direto, com crédito do fotógrafo no canto da capa, como as duas plataformas pedem.
 
 Sem nenhuma chave o app funciona igual, só sem as fotos automáticas.

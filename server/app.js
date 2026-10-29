@@ -8,7 +8,7 @@ import * as store from "./store.js";
 import { ProposalInput, sanitizeForPublic } from "./schema.js";
 import { extractFromImage, generateEditorial, aiAvailable, MODEL } from "./extract.js";
 import { lookupEditorial, MONTHS_PT } from "./editorial.js";
-import { imagesAvailable, searchHotelPhotos, searchDestinationPhotos, fetchRemoteImage, trackDownload, unsplashRateLimit } from "./images.js";
+import { imagesAvailable, searchHotelPhotos, searchDestinationPhotos, fetchRemoteImage, fetchPlacePhoto, trackDownload, unsplashRateLimit } from "./images.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -329,6 +329,16 @@ app.get("/api/images/unsplash-limit", requireAuth, async (req, res, next) => {
 app.post("/api/images/track", requireAuth, async (req, res) => {
   trackDownload(String(req.body?.track || "")).catch(() => {});
   res.json({ ok: true });
+});
+// Foto do Google Places: o navegador mostra como miniatura e depois guarda uma cópia como upload.
+// Mesma URL nos dois usos + cache de 30 dias no navegador/CDN = o Google cobra cada foto uma vez.
+app.get("/img/place", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000, max: 150 }), async (req, res, next) => {
+  try {
+    const { buf, mime } = await fetchPlacePhoto(String(req.query.n || ""));
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Cache-Control", "private, max-age=2592000, immutable");
+    res.send(buf);
+  } catch (err) { next(err); }
 });
 // Baixa uma foto de hotel achada na busca (URL assinada pelo servidor) pro navegador guardar como upload.
 app.get("/img/fetch", requireAuth, rateLimit({ windowMs: 60 * 1000, max: 60 }), async (req, res, next) => {

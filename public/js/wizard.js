@@ -467,6 +467,8 @@ async function findHotelPhotos(h) {
   if (!S.session.images?.hotels || !h.name?.trim()) return null;
   const r = await cachedApi(`h:${h.name}|${h.city}`.toLowerCase(), `/api/images/hotel?name=${encodeURIComponent(h.name)}&city=${encodeURIComponent(h.city || "")}`);
   h._found = r.photos || [];
+  // Endereço do Google Maps deixa o mapa da proposta exato.
+  if (r.place?.address && !h.address) h.address = r.place.address;
   return r;
 }
 /** Baixa uma foto achada (pelo proxy assinado do servidor), comprime como um upload normal e devolve a URL nossa. */
@@ -774,7 +776,7 @@ function hotelBlock(h, i) {
       : "Clique numa foto pra usar ou tirar do orçamento. A fonte aparece em cada foto: prefira o site do hotel ou sites de reserva." }),
     el("div", { class: "photo-grid" }, found.map((p) => el("div", {
       class: `photo ${p.uploaded && h.photos.includes(p.uploaded) ? "is-selected" : ""} ${p.importing ? "is-busy" : ""}`,
-      title: p.source ? `Fonte: ${p.source}` : "",
+      title: [p.source ? `Fonte: ${p.source}` : "", p.credit ? `Foto: ${p.credit}` : ""].filter(Boolean).join(" · "),
       onClick: async () => {
         if (p.importing) return;
         if (p.uploaded) return togglePhoto(h, p.uploaded);
@@ -786,7 +788,7 @@ function hotelBlock(h, i) {
         rerenderKeep();
       } },
       el("img", { src: p.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
-      p.source ? el("span", { class: "photo-src", text: p.source }) : null))),
+      p.source ? el("span", { class: "photo-src", text: p.credit ? `${p.source} · ${p.credit}` : p.source }) : null))),
   ) : null;
   const searchBtn = S.session.images?.hotels ? el("button", { class: "btn btn-sm btn-soft", type: "button", html: `${icon("image")} Buscar fotos do hotel na internet`, onClick: async (e) => {
     const b = e.currentTarget; b.disabled = true;
