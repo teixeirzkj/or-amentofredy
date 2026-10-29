@@ -215,6 +215,17 @@ export function searchDestinationPhotos({ city, region }) {
   });
 }
 
+/** Consulta o limite de requisições por hora da chave do Unsplash (gasta 1 requisição). */
+export async function unsplashRateLimit() {
+  if (!UNSPLASH_KEY) throw httpError("UNSPLASH_ACCESS_KEY não configurada.", 503);
+  const res = await fetch("https://api.unsplash.com/photos?per_page=1", { headers: { Authorization: `Client-ID ${UNSPLASH_KEY}`, "Accept-Version": "v1" } });
+  return {
+    status: res.status,
+    limitPerHour: Number(res.headers.get("x-ratelimit-limit")) || null,
+    remaining: Number(res.headers.get("x-ratelimit-remaining")) ?? null,
+  };
+}
+
 async function unsplash(query) {
   const u = new URL("https://api.unsplash.com/search/photos");
   u.search = new URLSearchParams({ query, orientation: "landscape", per_page: "8", content_filter: "high" }).toString();

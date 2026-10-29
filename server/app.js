@@ -8,7 +8,7 @@ import * as store from "./store.js";
 import { ProposalInput, sanitizeForPublic } from "./schema.js";
 import { extractFromImage, generateEditorial, aiAvailable, MODEL } from "./extract.js";
 import { lookupEditorial, MONTHS_PT } from "./editorial.js";
-import { imagesAvailable, searchHotelPhotos, searchDestinationPhotos, fetchRemoteImage, trackDownload } from "./images.js";
+import { imagesAvailable, searchHotelPhotos, searchDestinationPhotos, fetchRemoteImage, trackDownload, unsplashRateLimit } from "./images.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -322,6 +322,9 @@ app.get("/api/images/hotel", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000, 
 });
 app.get("/api/images/destination", requireAuth, rateLimit({ windowMs: 10 * 60 * 1000, max: 120 }), async (req, res, next) => {
   try { res.json({ photos: await searchDestinationPhotos({ city: String(req.query.city || "").slice(0, 80), region: String(req.query.region || "").slice(0, 80) }) }); } catch (err) { next(err); }
+});
+app.get("/api/images/unsplash-limit", requireAuth, async (req, res, next) => {
+  try { res.json(await unsplashRateLimit()); } catch (err) { next(err); }
 });
 app.post("/api/images/track", requireAuth, async (req, res) => {
   trackDownload(String(req.body?.track || "")).catch(() => {});
