@@ -51,7 +51,7 @@ function renderPills() {
 function render() {
   const o = proposal.options[current];
   app.innerHTML = "";
-  app.append(renderHero(o), renderContent(o), renderCta(o));
+  app.append(renderHero(o), renderContent(o));
 }
 
 /* ---------- Hero ---------- */
@@ -270,30 +270,6 @@ function renderPrice(o) {
     pr.applied && pr.savings > 0 ? el("div", { class: "discount", html: `🎉 ${pr.percent ? pr.percent + "% de desconto · " : ""}você economiza ${fmtBRL(pr.savings)} <s>${fmtBRL(pr.originalTotal)}</s>` }) : null,
     h.others.length ? el("div", { class: "others" }, el("h4", { text: h.othersTitle }), el("ul", {}, h.others.map((l) => el("li", { text: l.text })))) : null,
   );
-}
-
-/* ---------- CTA ---------- */
-function renderCta(o) {
-  const label = proposal.options.length > 1 ? `Quero a ${o.label || "opção " + (current + 1)}` : "Quero essa viagem";
-  // Depois da escolha o botão some; a marcação fica só no ✓ da aba da opção.
-  if (proposal.chosenOption === current) return document.createDocumentFragment();
-  const inner = el("div", { class: "cta-inner" },
-    el("button", { type: "button", class: "btn btn-primary", html: `${icon("whatsapp")} ${esc(label)}`, onClick: () => choose(o) }));
-  return el("div", { class: "cta-bar" }, inner);
-}
-
-async function choose(o) {
-  try {
-    if (!isPreview) await api(`/api/public/proposals/${encodeURIComponent(id)}/choose`, { method: "POST", body: { option: current } });
-    proposal.chosenOption = current;
-    const phone = (proposal.attendant?.whatsapp || "").replace(/\D/g, "");
-    const msg = `Olá${proposal.attendant?.name ? ", " + proposal.attendant.name : ""}! Vi a proposta pra ${o.destination?.city || "a viagem"} e quero seguir com a ${o.label || "opção " + (current + 1)} 🙌`;
-    renderPills(); render();
-    if (phone) window.open(`https://wa.me/${phone.startsWith("55") ? phone : "55" + phone}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
-    else toast("Escolha registrada! Seu atendente já vai falar com você.", "success");
-  } catch {
-    toast("Não consegui registrar agora. Responda a mensagem do seu atendente, por favor.", "error");
-  }
 }
 
 /* ---------- Lightbox ---------- */
