@@ -1,18 +1,21 @@
 // Busca de fotos na internet (tudo em planos gratuitos, sem cartão):
-// - Hotel: Google Programmable Search (Custom Search JSON API) com busca de imagens — 100 buscas/dia grátis.
+// - Hotel: SerpApi (Google Imagens) — plano grátis de 250 buscas/mês, sem cartão. Buscas repetidas em 1h não contam.
+//   (Ainda aceita a Custom Search JSON API do Google pra quem já tinha chave; ela fechou pra contas novas em 2026.)
 //   As fotos achadas são de sites de terceiros; o navegador baixa a escolhida via /img/fetch (proxy assinado)
 //   e guarda uma cópia nossa (como um upload normal), pra proposta não quebrar se o site original mudar.
 // - Destino: Unsplash (ou Pexels) — foto de capa, hotlink direto como as APIs pedem, com crédito do fotógrafo.
 import crypto from "node:crypto";
 import { sniffImage } from "./store.js";
 
+const SERPAPI_KEY = process.env.SERPAPI_API_KEY || process.env.SERPAPI_KEY || "";
+const SERPAPI_ENDPOINT = process.env.SERPAPI_ENDPOINT || "https://serpapi.com/search.json";
 const SEARCH_KEY = process.env.GOOGLE_SEARCH_API_KEY || "";
 const SEARCH_CX = process.env.GOOGLE_SEARCH_ENGINE_ID || "";
 const SEARCH_ENDPOINT = process.env.GOOGLE_SEARCH_ENDPOINT || "https://www.googleapis.com/customsearch/v1";
 const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY || "";
 const PEXELS_KEY = process.env.PEXELS_API_KEY || "";
 
-export const imagesAvailable = () => ({ hotels: Boolean(SEARCH_KEY && SEARCH_CX), destinations: Boolean(UNSPLASH_KEY || PEXELS_KEY) });
+export const imagesAvailable = () => ({ hotels: Boolean(SERPAPI_KEY || (SEARCH_KEY && SEARCH_CX)), destinations: Boolean(UNSPLASH_KEY || PEXELS_KEY) });
 
 // Cache em memória (vale por instância; na Vercel dura enquanto a função estiver quente).
 const cache = new Map();
@@ -44,7 +47,7 @@ async function fetchJson(url, init) {
 
 /* ---------- Assinatura das URLs externas (só o que a busca devolveu pode passar pelo proxy) ---------- */
 // Segredo estável entre instâncias: SESSION_SECRET se existir, senão derivado da própria chave de busca.
-const SIGN_SECRET = crypto.createHash("sha256").update("fredy-img:" + (process.env.SESSION_SECRET || SEARCH_KEY || "sem-chave")).digest();
+const SIGN_SECRET = crypto.createHash("sha256").update("fredy-img:" + (process.env.SESSION_SECRET || SERPAPI_KEY || SEARCH_KEY || "sem-chave")).digest();
 const signUrl = (u) => crypto.createHmac("sha256", SIGN_SECRET).update(u).digest("base64url").slice(0, 32);
 export function proxiedUrl(u) {
   return `/img/fetch?u=${encodeURIComponent(u)}&s=${signUrl(u)}`;
@@ -55,16 +58,57 @@ function verifySignature(u, s) {
   return expected.length === given.length && crypto.timingSafeEqual(expected, given);
 }
 
-/* ---------- Hotel (Google Programmable Search, busca de imagens) ---------- */
+/* ---------- Hotel (busca de imagens: SerpApi, ou Custom Search do Google) ---------- */
 const BAD_MIME = /gif|svg|bmp|tiff|x-icon/i;
+const BAD_EXT = /\.(gif|svg|bmp|tiff?|ico)(\?|$)/i;
+/** Prefere fotos grandes e em formato de paisagem/retrato comum; se sobrarem poucas, usa todas. */
+function pickGood(list) {
+  const good = list.filter((p) => {
+    if (!p.w || !p.h) return true;
+    return p.w >= 500 && p.h >= 350 && p.w / p.h <= 2.6 && p.h / p.w <= 1.6;
+  });
+  return (good.length >= 3 ? good : list).slice(0, 10);
+}
 /** @returns {Promise<{photos:Array<{url,thumb,source,page,w,h}>}>} `url` já é o caminho do proxy. */
 export function searchHotelPhotos({ name, city }) {
-  if (!SEARCH_KEY || !SEARCH_CX) throw httpError("Busca de fotos de hotel desligada: defina GOOGLE_SEARCH_API_KEY e GOOGLE_SEARCH_ENGINE_ID.", 503);
+  if (!SERPAPI_KEY && !(SEARCH_KEY && SEARCH_CX)) throw httpError("Busca de fotos de hotel desligada: defina SERPAPI_API_KEY.", 503);
   const hotel = String(name || "").trim();
   if (!hotel) throw httpError("Informe o nome do hotel.", 400);
   const kind = /hotel|pousada|resort|inn|hostel|flat/i.test(hotel) ? "" : "hotel";
   const q = [`"${hotel}"`, String(city || "").trim(), kind].filter(Boolean).join(" ");
-  return remember(`hotel:${q.toLowerCase()}`, async () => {
+  return remember(`hotel:${q.toLowerCase()}`, () => (SERPAPI_KEY ? serpapiImages(q) : googleCseImages(q)));
+}
+
+async function serpapiImages(q) {
+  const u = new URL(SERPAPI_ENDPOINT);
+  u.search = new URLSearchParams({ engine: "google_images", q, hl: "pt-br", gl: "br", safe: "active", api_key: SERPAPI_KEY }).toString();
+  const res = await fetch(u);
+  let data = null;
+  try { data = await res.json(); } catch { /* sem corpo */ }
+  const err = String(data?.error || "");
+  if (!res.ok || err) {
+    if (/hasn't returned any results/i.test(err)) return { photos: [] };
+    if (res.status === 429 || /run out of searches|plan.*limit|limit.*reached/i.test(err)) {
+      throw httpError("A cota grátis de buscas de fotos (SerpApi, 250 por mês) acabou. Suba as fotos manualmente; ela renova no mês que vem.", 429);
+    }
+    if (res.status === 401 || /invalid api key/i.test(err)) throw httpError("A SerpApi recusou a chave. Confira SERPAPI_API_KEY na Vercel.", 502);
+    throw httpError(`A busca de fotos falhou: ${(err || `HTTP ${res.status}`).slice(0, 160)}`, 502);
+  }
+  const list = (data?.images_results || [])
+    .filter((it) => /^https?:\/\//i.test(it.original || "") && !BAD_EXT.test(it.original) && it.thumbnail)
+    .map((it) => ({
+      link: it.original,
+      thumb: it.thumbnail,
+      source: String(it.source || "").replace(/^www\./, ""),
+      page: it.link || "",
+      w: Number(it.original_width) || 0,
+      h: Number(it.original_height) || 0,
+    }));
+  return { photos: pickGood(list).map(({ link, ...p }) => ({ url: proxiedUrl(link), ...p })) };
+}
+
+function googleCseImages(q) {
+  return (async () => {
     const u = new URL(SEARCH_ENDPOINT);
     u.search = new URLSearchParams({ key: SEARCH_KEY, cx: SEARCH_CX, q, searchType: "image", num: "10", imgType: "photo", safe: "active", hl: "pt-BR", gl: "br" }).toString();
     let data;
@@ -75,24 +119,18 @@ export function searchHotelPhotos({ name, city }) {
       if (err.upstream === 400) throw httpError(`O Google recusou a busca: ${err.message}. Confira GOOGLE_SEARCH_API_KEY e GOOGLE_SEARCH_ENGINE_ID.`, 502);
       throw err;
     }
-    const items = (data?.items || []).filter((it) => /^https?:\/\//i.test(it.link || "") && !BAD_MIME.test(it.mime || "") && it.image?.thumbnailLink);
-    const good = items.filter((it) => {
-      const w = Number(it.image?.width) || 0;
-      const h = Number(it.image?.height) || 0;
-      return w >= 500 && h >= 350 && w / h <= 2.6 && h / w <= 1.6;
-    });
-    const list = (good.length >= 3 ? good : items).slice(0, 10);
-    return {
-      photos: list.map((it) => ({
-        url: proxiedUrl(it.link),
+    const list = (data?.items || [])
+      .filter((it) => /^https?:\/\//i.test(it.link || "") && !BAD_MIME.test(it.mime || "") && it.image?.thumbnailLink)
+      .map((it) => ({
+        link: it.link,
         thumb: it.image.thumbnailLink,
         source: it.displayLink || "",
         page: it.image.contextLink || "",
         w: Number(it.image?.width) || 0,
         h: Number(it.image?.height) || 0,
-      })),
-    };
-  });
+      }));
+    return { photos: pickGood(list).map(({ link, ...p }) => ({ url: proxiedUrl(link), ...p })) };
+  })();
 }
 
 /* ---------- Proxy de download (uma foto escolhida pelo atendente) ---------- */
